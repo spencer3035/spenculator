@@ -8,8 +8,13 @@ pub struct OpCode {
     add_cycle_for_new_page: bool,
 }
 
-pub const fn get_opcode(byte: u8) -> &'static OpCode {
-    &OPCODE_LUT[byte as usize]
+impl OpCode {
+    pub fn instruction(&self) -> &Instruction {
+        &self.instruction
+    }
+    pub const fn get(byte: u8) -> &'static Self {
+        &OPCODE_LUT[byte as usize]
+    }
 }
 
 /// All possible instructions on a 6502 including the undefined opcodes
@@ -96,7 +101,7 @@ mod test {
     #[test]
     fn test_lookup_table() {
         // Get random value from table
-        let op = get_opcode(0x01);
+        let op = OpCode::get(0x01);
         assert_eq!(op.name, "ORA");
         assert_eq!(op.instruction, Instruction::ORA);
         assert_eq!(op.mode, AddressingMode::IZX);
@@ -104,7 +109,7 @@ mod test {
         assert_eq!(op.add_cycle_for_new_page, false);
 
         // Get another random value from the table
-        let op = get_opcode(0xF1);
+        let op = OpCode::get(0xF1);
         assert_eq!(op.name, "SBC");
         assert_eq!(op.instruction, Instruction::SBC);
         assert_eq!(op.mode, AddressingMode::IZY);
@@ -115,7 +120,7 @@ mod test {
         assert_eq!(u8::MAX, 0xFF);
 
         // Get last element in table.
-        let op = get_opcode(u8::MAX);
+        let op = OpCode::get(u8::MAX);
         assert_eq!(op.name, "ISC");
         assert_eq!(op.instruction, Instruction::ISC);
         assert_eq!(op.mode, AddressingMode::ABX);

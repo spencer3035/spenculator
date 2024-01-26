@@ -20,14 +20,14 @@ mod cpu;
 // 2 KB ram
 const RAM_BYTES: usize = 2 * 1024;
 
-struct Bus {
+struct Nes {
     cpu: cpu::Cpu,
     ram: [u8; RAM_BYTES],
 }
 
-impl Bus {
+impl Nes {
     fn new() -> Self {
-        Bus {
+        Nes {
             cpu: cpu::Cpu::new(),
             ram: [0; RAM_BYTES],
         }
@@ -36,8 +36,11 @@ impl Bus {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     #[test]
     fn test_load_registers() {
+        let mut nes = Nes::new();
+
         // TODO:
         // LDA = 0xA1
         // LDX = 0xA2

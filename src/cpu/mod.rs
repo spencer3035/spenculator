@@ -1,3 +1,4 @@
+mod instructions;
 mod opcodes;
 
 pub struct Cpu {
@@ -12,21 +13,24 @@ pub struct Cpu {
     register_y: u8,
     status: CpuStatus,
 
-    // Internal variables to store data.
-    
     // Data retrieved from the bus
     fetched_data: u8,
-    // Absolute Address
+    // Absolute address received
     addr_abs: u16,
-    // Relative address
+    // Relative address received
     addr_rel: u16,
     // Opcode that is currently being processed
     opcode: u8,
-    // Remaining clock cycles left in the instruction
-    clock_cycles_remaining: u8,
 }
 
 impl Cpu {
+    pub fn load(&mut self, fetched_data: u8, addr_abs: u16, addr_rel: u16, opcode: u8) {
+        self.fetched_data = fetched_data;
+        self.addr_abs = addr_abs;
+        self.addr_rel = addr_rel;
+        self.opcode = opcode;
+    }
+
     pub fn new() -> Self {
         Self {
             clock_tick: 0,
@@ -40,11 +44,19 @@ impl Cpu {
             addr_abs: 0,
             addr_rel: 0,
             opcode: 0,
-            clock_cycles_remaining: 0,
         }
     }
-    fn clock(&mut self) {
+
+    pub fn clock(&mut self) {
         self.clock_tick += 1;
+    }
+
+    pub fn process_opcode(&mut self) {
+        // TODO Load data
+        let op = opcodes::OpCode::get(self.opcode);
+        // TODO: Set with opcode
+        let _clock_cycles_to_wait = 5;
+        instructions::process_instruction(self, op.instruction());
     }
 }
 
@@ -52,7 +64,32 @@ struct CpuStatus {
     register: u8,
 }
 
+macro_rules! set_unset_get_def {
+    ($($flag:ident),*) => {
+        ::paste::paste! {
+            $(
+            #[doc=concat!("Sets the ", stringify!($flag), " flag in the CPU status bitmask")]
+            fn [<set_ $flag:lower>](&mut self) {
+                self.set(&CpuStatusFlag::$flag);
+            }
+
+            #[doc=concat!("Unsets the ", stringify!($flag), " flag in the CPU status bitmask")]
+            fn [<unset_ $flag:lower>](&mut self) {
+                self.unset(&CpuStatusFlag::$flag);
+            }
+
+            #[doc=concat!("Gets the ", stringify!($flag), " flag in the CPU status bitmask")]
+            fn [<get_ $flag:lower>](&self) {
+                self.get(&CpuStatusFlag::$flag);
+            }
+            )*
+        }
+
+    };
+}
+
 impl CpuStatus {
+    set_unset_get_def!(C, Z, I, D, B, U, V, N);
     fn new() -> Self {
         CpuStatus {
             register: 0b00100000,
