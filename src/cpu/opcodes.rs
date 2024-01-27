@@ -1,8 +1,12 @@
 /// Definition of what an opcode is
-#[derive(PartialEq, Debug)]
+use super::Cpu;
 pub struct OpCode {
     name: &'static str,
     instruction: Instruction,
+    // TODO: Make a pointer to the function corresponding to the instruction. It may be preferable
+    // to get rid of the enum as well because it is a bit cumbersome to use in practice. Attaching
+    // everything to the opcode is an attractive idea.
+    instruction_fn: &'static dyn Fn(&mut Cpu),
     mode: AddressingMode,
     cycles: u8,
     add_cycle_for_new_page: bool,
@@ -65,6 +69,7 @@ pub enum AddressingMode {
     ZPY, // Zero page indexing on y
 }
 
+use crate::cpu::instructions::*;
 // Macro to make the lookup table creation cleaner.
 macro_rules! format_lut {
     ($( ($ins:ident, $addr:ident, $cycles:expr, $extra:expr) ),* ) => {
@@ -72,6 +77,7 @@ macro_rules! format_lut {
             name : stringify!($ins),
             instruction: Instruction::$ins,
             mode : AddressingMode::$addr,
+            instruction_fn : &::paste::paste!([<$ins:lower>]),
             cycles : $cycles,
             add_cycle_for_new_page : $extra == 1,
         },)*]
