@@ -12,6 +12,15 @@ impl OpCode {
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
+    pub fn mode(&self) -> &AddressingMode {
+        &self.mode
+    }
+    pub fn cycles(&self) -> u8 {
+        self.cycles
+    }
+    pub fn extra_cycle_for_new_page(&self) -> bool {
+        self.add_cycle_for_new_page
+    }
     pub const fn get(byte: u8) -> &'static Self {
         &OPCODE_LUT[byte as usize]
     }
@@ -43,11 +52,11 @@ impl Instruction {
 #[derive(PartialEq, Debug)]
 pub enum AddressingMode {
     ABS, // Absolute addressing mode
-    ABX, // Absolute addressing on X
-    ABY, // Absolute addressing on Y
-    IMM, // Immediate
-    IND, // Indirect Addressing
-    IZX, // Relative indexing on X
+    ABX, // Absolute addressing with X offset
+    ABY, // Absolute addressing with Y offset
+    IMM, // Immediate (next address)
+    IND, // Indirect Addressing. Like absolute addressing, but with pointers.
+    IZX, // Zero page indexing with X offset
     IZY, // Ralative indexing on Y
     REL, // Relative addressing to PC
     XXX, // No addressing defined

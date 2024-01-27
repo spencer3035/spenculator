@@ -23,6 +23,7 @@ const RAM_BYTES: usize = 2 * 1024;
 struct Nes {
     cpu: cpu::Cpu,
     ram: [u8; RAM_BYTES],
+    is_running: bool,
 }
 
 impl Nes {
@@ -30,7 +31,11 @@ impl Nes {
         Nes {
             cpu: cpu::Cpu::new(),
             ram: [0; RAM_BYTES],
+            is_running: true,
         }
+    }
+    fn tick(&mut self) {
+        self.cpu.tick()
     }
 }
 
@@ -40,6 +45,10 @@ mod test {
     #[test]
     fn test_load_registers() {
         let mut nes = Nes::new();
+        let num_ticks = 1000;
+        for _tick in 0..num_ticks {
+            nes.tick();
+        }
 
         // TODO:
         // LDA = 0xA1

@@ -1,3 +1,5 @@
+use self::opcodes::AddressingMode;
+
 mod instructions;
 mod opcodes;
 
@@ -47,16 +49,126 @@ impl Cpu {
         }
     }
 
-    pub fn clock(&mut self) {
+    pub fn tick(&mut self) {
         self.clock_tick += 1;
     }
 
-    pub fn process_opcode(&mut self) {
+    pub fn process_opcode(&mut self, ram: &mut [u8]) -> u8 {
         // TODO Load data
         let op = opcodes::OpCode::get(self.opcode);
-        // TODO: Set with opcode
-        let _clock_cycles_to_wait = 5;
+        let mut clock_cycles_to_wait = op.cycles();
+        if self.process_access_mode(ram, op.mode()) {
+            clock_cycles_to_wait += 1;
+        }
         instructions::process_instruction(self, op.instruction());
+        clock_cycles_to_wait
+    }
+
+    fn process_access_mode(&mut self, ram: &mut [u8], mode: &AddressingMode) -> bool {
+        let zero_page_offset =
+            |val: u8| ram[self.program_counter as usize] as u16 + val as u16 & 0x00FF;
+
+        let absolute_address_offset = |val: u8| {
+            let low = ram[self.program_counter as usize];
+            let high = ram[self.program_counter as usize + 1];
+            let mut addr_abs = (high as u16) << 8 | (low as u16);
+            addr_abs += val as u16;
+            let new_page = self.addr_abs & 0xFF00 != (high as u16) << 8;
+            (addr_abs, new_page)
+        };
+
+        match mode {
+            AddressingMode::XXX => false,
+            AddressingMode::IMM => {
+                self.addr_abs = self.program_counter + 1;
+                self.program_counter += 1;
+                false
+            }
+            AddressingMode::ZP0 => {
+                // The cast from u8 to u16 ensures it is on page zero.
+                self.addr_abs = ram[self.program_counter as usize] as u16;
+                self.program_counter += 1;
+                false
+            }
+            AddressingMode::ZPX => {
+                let addr_abs = zero_page_offset(self.register_x);
+                self.addr_abs = addr_abs;
+                self.program_counter += 1;
+                false
+            }
+            AddressingMode::ZPY => {
+                self.addr_abs = zero_page_offset(self.register_y);
+                self.program_counter += 1;
+                false
+            }
+            AddressingMode::ABS => {
+                let (addr_abs, _new_page) = absolute_address_offset(0);
+                self.program_counter += 2;
+                self.addr_abs = addr_abs;
+                false
+            }
+            AddressingMode::ABX => {
+                let (addr_abs, new_page) = absolute_address_offset(self.register_x);
+                self.program_counter += 2;
+                self.addr_abs = addr_abs;
+                new_page
+            }
+            AddressingMode::ABY => {
+                let (addr_abs, new_page) = absolute_address_offset(self.register_y);
+                self.program_counter += 2;
+                self.addr_abs = addr_abs;
+                new_page
+            }
+            AddressingMode::IND => {
+                let low = ram[self.program_counter as usize] as u16;
+                let high = ram[self.program_counter as usize + 1] as u16;
+                let addr_ptr = (high << 8 | low) as usize;
+
+                // Simulate hardware bug
+                let addr_abs = if low == 0x00FF {
+                    (ram[addr_ptr & 0xFF00] as u16) << 8 | ram[addr_ptr] as u16
+                } else {
+                    (ram[addr_ptr + 1] as u16) << 8 | ram[addr_ptr] as u16
+                };
+
+                self.addr_abs = addr_abs;
+                self.program_counter += 2;
+                false
+            }
+            AddressingMode::IZX => {
+                let offset_addr =
+                    (ram[self.program_counter as usize] as u16 + self.register_x as u16) as usize;
+                let low = ram[offset_addr & 0x00FF] as u16;
+                let high = ram[(offset_addr + 1) & 0x00FF] as u16;
+                let addr_abs = high << 8 | low;
+
+                self.addr_abs = addr_abs;
+                self.program_counter += 1;
+                false
+            }
+            AddressingMode::IZY => {
+                let offset_addr = (ram[self.program_counter as usize] as u16) as usize;
+                let low = ram[offset_addr & 0x00FF] as u16;
+                let high = ram[(offset_addr + 1) & 0x00FF] as u16;
+                let addr_abs = (high << 8 | low) + self.register_y as u16;
+
+                self.addr_abs = addr_abs;
+                self.program_counter += 1;
+                if (addr_abs & 0xFF00) != high << 8 {
+                    true
+                } else {
+                    false
+                }
+            }
+            AddressingMode::REL => {
+                self.addr_rel = ram[self.program_counter as usize] as u16;
+                self.program_counter += 1;
+                if self.addr_rel & 0x80 != 0 {
+                    self.addr_rel |= 0xFF00;
+                }
+                false
+            }
+        }
     }
 }
 

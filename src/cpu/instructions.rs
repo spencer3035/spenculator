@@ -19,16 +19,19 @@ match_instruction!(
     SEC, SED, SEI, SHX, SHY, SLO, SRE, STA, STX, STY, TAS, TAX, TAY, TSX, TXA, TXS, TYA, XAA
 );
 
-//pub fn ldx(cpu: &mut Cpu, val: &u8) {
-//    cpu.register_x = *val;
-//    // Zero flag
-//    if cpu.register_x == 0 {
-//        cpu.status.set_z();
-//    }
-//    if cpu.register_x & 0b10000000 == 0 {
-//        cpu.status.set_n();
-//    }
-//}
+// Utility functions to make code slightly cleaner
+#[inline]
+fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
+    if val == 0 {
+        cpu.status.set_z();
+    }
+}
+#[inline]
+fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
+    if val & 0b10000000 == 0 {
+        cpu.status.set_n();
+    }
+}
 
 pub fn adc(_cpu: &mut Cpu) {
     todo!()
@@ -147,14 +150,20 @@ pub fn las(_cpu: &mut Cpu) {
 pub fn lax(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn lda(_cpu: &mut Cpu) {
-    todo!()
+pub fn lda(cpu: &mut Cpu) {
+    cpu.accumulator = cpu.fetched_data;
+    check_zero_and_set_z(cpu, cpu.accumulator);
+    check_negative_and_set_n(cpu, cpu.accumulator);
 }
-pub fn ldx(_cpu: &mut Cpu) {
-    todo!()
+pub fn ldx(cpu: &mut Cpu) {
+    cpu.register_x = cpu.fetched_data;
+    check_zero_and_set_z(cpu, cpu.register_x);
+    check_negative_and_set_n(cpu, cpu.register_x);
 }
-pub fn ldy(_cpu: &mut Cpu) {
-    todo!()
+pub fn ldy(cpu: &mut Cpu) {
+    cpu.register_y = cpu.fetched_data;
+    check_zero_and_set_z(cpu, cpu.register_y);
+    check_negative_and_set_n(cpu, cpu.register_y);
 }
 pub fn lsr(_cpu: &mut Cpu) {
     todo!()
@@ -201,14 +210,14 @@ pub fn sax(_cpu: &mut Cpu) {
 pub fn sbc(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn sec(_cpu: &mut Cpu) {
-    todo!()
+pub fn sec(cpu: &mut Cpu) {
+    cpu.status.set_c();
 }
 pub fn sed(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn sei(_cpu: &mut Cpu) {
-    todo!()
+pub fn sei(cpu: &mut Cpu) {
+    cpu.status.set_i();
 }
 pub fn shx(_cpu: &mut Cpu) {
     todo!()
@@ -222,9 +231,7 @@ pub fn slo(_cpu: &mut Cpu) {
 pub fn sre(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn sta(_cpu: &mut Cpu) {
-    todo!()
-}
+pub fn sta(cpu: &mut Cpu) {}
 pub fn stx(_cpu: &mut Cpu) {
     todo!()
 }
