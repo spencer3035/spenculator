@@ -12,9 +12,24 @@ pub struct OpCode {
     add_cycle_for_new_page: bool,
 }
 
+impl std::fmt::Debug for OpCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpCode")
+            .field("name", &self.name)
+            .field("instruction", &self.instruction)
+            .field("mode", &self.mode)
+            .field("cycles", &self.cycles)
+            .field("add_cycle_for_new_page", &self.add_cycle_for_new_page)
+            .finish()
+    }
+}
+
 impl OpCode {
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
+    }
+    pub fn instruction_fn(&self, cpu: &mut Cpu) {
+        (self.instruction_fn)(cpu);
     }
     pub fn mode(&self) -> &AddressingMode {
         &self.mode
@@ -42,7 +57,7 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    fn is_branch(&self) -> bool {
+    pub fn is_branch(&self) -> bool {
         type I = Instruction;
         match *self {
             I::BPL | I::BMI | I::BVC | I::BVS | I::BCC | I::BCS | I::BNE | I::BEQ => true,

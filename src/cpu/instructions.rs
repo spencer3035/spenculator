@@ -19,7 +19,28 @@ match_instruction!(
     SEC, SED, SEI, SHX, SHY, SLO, SRE, STA, STX, STY, TAS, TAX, TAY, TSX, TXA, TXS, TYA, XAA
 );
 
+const BIT_SEVEN: u8 = 0b10000000;
+const BIT_SIX: u8 = 0b01000000;
+const BIT_ZERO: u8 = 0b00000001;
+
 // Utility functions to make code slightly cleaner
+#[inline]
+fn cmp_val(cpu: &mut Cpu, val: u8) {
+    if val >= cpu.fetched_data() {
+        cpu.status.set_c();
+    }
+    if val == cpu.fetched_data() {
+        cpu.status.set_z();
+    }
+    if (val - cpu.fetched_data()) & BIT_SEVEN != 1 {
+        cpu.status.set_n();
+    }
+}
+#[inline]
+fn check_z_and_n(cpu: &mut Cpu, val: u8) {
+    check_zero_and_set_z(cpu, val);
+    check_negative_and_set_n(cpu, val);
+}
 #[inline]
 fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
     if val == 0 {
@@ -28,13 +49,37 @@ fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
-    if val & 0b10000000 == 0 {
+    if val & BIT_SEVEN == 0 {
         cpu.status.set_n();
     }
 }
+#[inline]
+fn check_overflow_ant_set_c(cpu: &mut Cpu, val: u8) {
+    if val & BIT_SEVEN == 0 {
+        cpu.status.set_n();
+    }
+}
+#[inline]
+fn write_data(cpu: &mut Cpu, val: u8) {
+    cpu.write_data = Some(val);
+}
 
-pub fn adc(_cpu: &mut Cpu) {
-    todo!()
+// Begin actual instruction implementations
+pub fn adc(cpu: &mut Cpu) {
+    let data = cpu.fetched_data();
+    let val = cpu.accumulator.checked_add(data);
+    match val {
+        Some(v) => {
+            cpu.accumulator = v;
+        }
+        None => {
+            cpu.accumulator += data;
+            cpu.status.set_c();
+            // Calculate overflow
+        }
+    }
+
+    check_zero_and_set_z(cpu, cpu.accumulator);
 }
 pub fn ahx(_cpu: &mut Cpu) {
     todo!()
@@ -45,100 +90,146 @@ pub fn alr(_cpu: &mut Cpu) {
 pub fn anc(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn and(_cpu: &mut Cpu) {
-    todo!()
+pub fn and(cpu: &mut Cpu) {
+    let data = cpu.fetched_data();
+    cpu.accumulator &= data;
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn arr(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn asl(_cpu: &mut Cpu) {
-    todo!()
+pub fn asl(cpu: &mut Cpu) {
+    let data = cpu.fetched_data();
+    check_overflow_ant_set_c(cpu, cpu.accumulator);
+    cpu.accumulator &= data;
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn axs(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn bcc(_cpu: &mut Cpu) {
-    todo!()
+pub fn bcc(cpu: &mut Cpu) {
+    if !cpu.status.get_c() {
+        // branch
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn bcs(_cpu: &mut Cpu) {
-    todo!()
+pub fn bcs(cpu: &mut Cpu) {
+    if cpu.status.get_c() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn beq(_cpu: &mut Cpu) {
-    todo!()
+pub fn beq(cpu: &mut Cpu) {
+    if cpu.status.get_z() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn bit(_cpu: &mut Cpu) {
-    todo!()
+pub fn bit(cpu: &mut Cpu) {
+    let data = cpu.fetched_data();
+    cpu.accumulator = cpu.accumulator & data;
+    check_zero_and_set_z(cpu, cpu.accumulator);
+    if data & BIT_SIX == 0 {
+        cpu.status.unset_v();
+    } else {
+        cpu.status.set_v();
+    }
+    if data & BIT_SEVEN == 0 {
+        cpu.status.unset_n();
+    } else {
+        cpu.status.set_n();
+    }
 }
-pub fn bmi(_cpu: &mut Cpu) {
-    todo!()
+pub fn bmi(cpu: &mut Cpu) {
+    if cpu.status.get_n() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn bne(_cpu: &mut Cpu) {
-    todo!()
+pub fn bne(cpu: &mut Cpu) {
+    if !cpu.status.get_z() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn bpl(_cpu: &mut Cpu) {
-    todo!()
+pub fn bpl(cpu: &mut Cpu) {
+    if !cpu.status.get_z() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
 pub fn brk(_cpu: &mut Cpu) {
+    // Needs inturrupts implemented
     todo!()
 }
-pub fn bvc(_cpu: &mut Cpu) {
-    todo!()
+pub fn bvc(cpu: &mut Cpu) {
+    if !cpu.status.get_v() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn bvs(_cpu: &mut Cpu) {
-    todo!()
+pub fn bvs(cpu: &mut Cpu) {
+    if cpu.status.get_v() {
+        cpu.program_counter += cpu.addr_rel();
+    }
 }
-pub fn clc(_cpu: &mut Cpu) {
-    todo!()
+pub fn clc(cpu: &mut Cpu) {
+    cpu.status.unset_c();
 }
-pub fn cld(_cpu: &mut Cpu) {
-    todo!()
+pub fn cld(cpu: &mut Cpu) {
+    cpu.status.unset_d();
 }
-pub fn cli(_cpu: &mut Cpu) {
-    todo!()
+pub fn cli(cpu: &mut Cpu) {
+    cpu.status.unset_i();
 }
-pub fn clv(_cpu: &mut Cpu) {
-    todo!()
+pub fn clv(cpu: &mut Cpu) {
+    cpu.status.unset_v();
 }
-pub fn cmp(_cpu: &mut Cpu) {
-    todo!()
+pub fn cmp(cpu: &mut Cpu) {
+    cmp_val(cpu, cpu.accumulator);
 }
-pub fn cpx(_cpu: &mut Cpu) {
-    todo!()
+pub fn cpx(cpu: &mut Cpu) {
+    cmp_val(cpu, cpu.register_x);
 }
-pub fn cpy(_cpu: &mut Cpu) {
-    todo!()
+pub fn cpy(cpu: &mut Cpu) {
+    cmp_val(cpu, cpu.register_y);
 }
 pub fn dcp(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn dec(_cpu: &mut Cpu) {
-    todo!()
+pub fn dec(cpu: &mut Cpu) {
+    let result = cpu.fetched_data() - 1;
+    check_z_and_n(cpu, result);
+    cpu.write_data = Some(result);
 }
-pub fn dex(_cpu: &mut Cpu) {
-    todo!()
+pub fn dex(cpu: &mut Cpu) {
+    cpu.register_x -= 1;
+    check_z_and_n(cpu, cpu.register_x);
 }
-pub fn dey(_cpu: &mut Cpu) {
-    todo!()
+pub fn dey(cpu: &mut Cpu) {
+    cpu.register_y -= 1;
+    check_z_and_n(cpu, cpu.register_y);
 }
-pub fn eor(_cpu: &mut Cpu) {
-    todo!()
+pub fn eor(cpu: &mut Cpu) {
+    cpu.accumulator ^= cpu.fetched_data();
+    check_z_and_n(cpu, cpu.accumulator);
 }
-pub fn inc(_cpu: &mut Cpu) {
-    todo!()
+pub fn inc(cpu: &mut Cpu) {
+    let result = cpu.fetched_data() + 1;
+    check_z_and_n(cpu, result);
+    cpu.write_data = Some(result);
 }
-pub fn inx(_cpu: &mut Cpu) {
-    todo!()
+pub fn inx(cpu: &mut Cpu) {
+    cpu.register_x += 1;
+    check_z_and_n(cpu, cpu.register_x);
 }
-pub fn iny(_cpu: &mut Cpu) {
-    todo!()
+pub fn iny(cpu: &mut Cpu) {
+    cpu.register_y += 1;
+    check_z_and_n(cpu, cpu.register_y);
 }
 pub fn isc(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn jmp(_cpu: &mut Cpu) {
-    todo!()
+pub fn jmp(cpu: &mut Cpu) {
+    cpu.program_counter = cpu.addr_abs();
 }
-pub fn jsr(_cpu: &mut Cpu) {
+pub fn jsr(cpu: &mut Cpu) {
+    cpu.stack_pointer += 1;
+    cpu.program_counter = cpu.addr_abs();
     todo!()
 }
 pub fn kil(_cpu: &mut Cpu) {
@@ -151,28 +242,39 @@ pub fn lax(_cpu: &mut Cpu) {
     todo!()
 }
 pub fn lda(cpu: &mut Cpu) {
-    cpu.accumulator = cpu.fetched_data;
-    check_zero_and_set_z(cpu, cpu.accumulator);
-    check_negative_and_set_n(cpu, cpu.accumulator);
+    cpu.accumulator = cpu.fetched_data();
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn ldx(cpu: &mut Cpu) {
-    cpu.register_x = cpu.fetched_data;
-    check_zero_and_set_z(cpu, cpu.register_x);
-    check_negative_and_set_n(cpu, cpu.register_x);
+    cpu.register_x = cpu.fetched_data();
+    check_z_and_n(cpu, cpu.register_x);
 }
 pub fn ldy(cpu: &mut Cpu) {
-    cpu.register_y = cpu.fetched_data;
-    check_zero_and_set_z(cpu, cpu.register_y);
-    check_negative_and_set_n(cpu, cpu.register_y);
+    cpu.register_y = cpu.fetched_data();
+    check_z_and_n(cpu, cpu.register_y);
 }
-pub fn lsr(_cpu: &mut Cpu) {
-    todo!()
+pub fn lsr(cpu: &mut Cpu) {
+    let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
+        if val & BIT_ZERO != 0 {
+            cpu.status.set_c();
+        }
+        let val = val >> 1;
+        check_z_and_n(cpu, val);
+        val
+    };
+
+    if let Some(data) = cpu.fetched_data {
+        let val = shift_value(cpu, data);
+        write_data(cpu, val);
+    } else {
+        let val = shift_value(cpu, cpu.accumulator);
+        cpu.accumulator = val;
+    }
 }
-pub fn nop(_cpu: &mut Cpu) {
-    todo!()
-}
-pub fn ora(_cpu: &mut Cpu) {
-    todo!()
+pub fn nop(_cpu: &mut Cpu) {}
+pub fn ora(cpu: &mut Cpu) {
+    cpu.accumulator |= cpu.fetched_data();
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn pha(_cpu: &mut Cpu) {
     todo!()
@@ -189,11 +291,53 @@ pub fn plp(_cpu: &mut Cpu) {
 pub fn rla(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn rol(_cpu: &mut Cpu) {
-    todo!()
+pub fn rol(cpu: &mut Cpu) {
+    let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
+        let is_carry = if val & BIT_SEVEN != 0 {
+            cpu.status.set_c();
+            true
+        } else {
+            false
+        };
+        let mut val = val << 1;
+        if is_carry {
+            val = val | BIT_ZERO;
+        }
+        check_z_and_n(cpu, val);
+        val
+    };
+
+    if let Some(data) = cpu.fetched_data {
+        let val = shift_value(cpu, data);
+        write_data(cpu, val);
+    } else {
+        let val = shift_value(cpu, cpu.accumulator);
+        cpu.accumulator = val;
+    }
 }
-pub fn ror(_cpu: &mut Cpu) {
-    todo!()
+pub fn ror(cpu: &mut Cpu) {
+    let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
+        let is_carry = if val & BIT_ZERO != 0 {
+            cpu.status.set_c();
+            true
+        } else {
+            false
+        };
+        let mut val = val >> 1;
+        if is_carry {
+            val = val | BIT_SEVEN;
+        }
+        check_z_and_n(cpu, val);
+        val
+    };
+
+    if let Some(data) = cpu.fetched_data {
+        let val = shift_value(cpu, data);
+        write_data(cpu, val);
+    } else {
+        let val = shift_value(cpu, cpu.accumulator);
+        cpu.accumulator = val;
+    }
 }
 pub fn rra(_cpu: &mut Cpu) {
     todo!()
@@ -207,14 +351,37 @@ pub fn rts(_cpu: &mut Cpu) {
 pub fn sax(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn sbc(_cpu: &mut Cpu) {
-    todo!()
+pub fn sbc(cpu: &mut Cpu) {
+    let data = cpu.fetched_data();
+    let started_negative = cpu.accumulator & BIT_SEVEN != 0;
+    if cpu.status.get_c() {
+        if let Some(val) = cpu.accumulator.checked_sub(data) {
+            cpu.accumulator = val;
+        } else {
+            cpu.accumulator -= data;
+            // Underflow
+            cpu.status.unset_c();
+        }
+    } else {
+        if let Some(val) = cpu.accumulator.checked_sub(data + 1) {
+            cpu.accumulator = val;
+        } else {
+            cpu.accumulator -= data + 1;
+            // Underflow
+            cpu.status.unset_c();
+        }
+    }
+    let ended_positive = cpu.accumulator & BIT_SEVEN == 0;
+    if started_negative && ended_positive {
+        cpu.status.set_v();
+    }
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn sec(cpu: &mut Cpu) {
     cpu.status.set_c();
 }
-pub fn sed(_cpu: &mut Cpu) {
-    todo!()
+pub fn sed(cpu: &mut Cpu) {
+    cpu.status.set_d();
 }
 pub fn sei(cpu: &mut Cpu) {
     cpu.status.set_i();
@@ -231,33 +398,40 @@ pub fn slo(_cpu: &mut Cpu) {
 pub fn sre(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn sta(cpu: &mut Cpu) {}
-pub fn stx(_cpu: &mut Cpu) {
-    todo!()
+pub fn sta(cpu: &mut Cpu) {
+    write_data(cpu, cpu.accumulator);
 }
-pub fn sty(_cpu: &mut Cpu) {
-    todo!()
+pub fn stx(cpu: &mut Cpu) {
+    write_data(cpu, cpu.register_x);
+}
+pub fn sty(cpu: &mut Cpu) {
+    write_data(cpu, cpu.register_y);
 }
 pub fn tas(_cpu: &mut Cpu) {
     todo!()
 }
-pub fn tax(_cpu: &mut Cpu) {
-    todo!()
+pub fn tax(cpu: &mut Cpu) {
+    cpu.register_x = cpu.accumulator;
+    check_z_and_n(cpu, cpu.register_x);
 }
-pub fn tay(_cpu: &mut Cpu) {
-    todo!()
+pub fn tay(cpu: &mut Cpu) {
+    cpu.register_y = cpu.accumulator;
+    check_z_and_n(cpu, cpu.register_y);
 }
-pub fn tsx(_cpu: &mut Cpu) {
-    todo!()
+pub fn tsx(cpu: &mut Cpu) {
+    cpu.register_x = cpu.stack_pointer;
+    check_z_and_n(cpu, cpu.register_x);
 }
-pub fn txa(_cpu: &mut Cpu) {
-    todo!()
+pub fn txa(cpu: &mut Cpu) {
+    cpu.accumulator = cpu.register_x;
+    check_z_and_n(cpu, cpu.accumulator);
 }
-pub fn txs(_cpu: &mut Cpu) {
-    todo!()
+pub fn txs(cpu: &mut Cpu) {
+    cpu.stack_pointer = cpu.register_x;
 }
-pub fn tya(_cpu: &mut Cpu) {
-    todo!()
+pub fn tya(cpu: &mut Cpu) {
+    cpu.accumulator = cpu.register_y;
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn xaa(_cpu: &mut Cpu) {
     todo!()

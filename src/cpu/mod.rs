@@ -1,11 +1,15 @@
+use crate::AddressSpace;
+
 use self::opcodes::AddressingMode;
 
+mod addressing;
 mod instructions;
 mod opcodes;
 
+#[derive(Debug)]
 pub struct Cpu {
     // Clock
-    clock_tick: u32,
+    clock_tick: u8,
 
     // Registers
     program_counter: u16,
@@ -16,162 +20,118 @@ pub struct Cpu {
     status: CpuStatus,
 
     // Data retrieved from the bus
-    fetched_data: u8,
+    fetched_data: Option<u8>,
     // Absolute address received
-    addr_abs: u16,
+    addr_abs: Option<u16>,
     // Relative address received
-    addr_rel: u16,
+    addr_rel: Option<u16>,
     // Opcode that is currently being processed
-    opcode: u8,
+    opcode: Option<u8>,
+    // Data that needs to be written to memory
+    write_data: Option<u8>,
 }
 
-impl Cpu {
-    pub fn load(&mut self, fetched_data: u8, addr_abs: u16, addr_rel: u16, opcode: u8) {
-        self.fetched_data = fetched_data;
-        self.addr_abs = addr_abs;
-        self.addr_rel = addr_rel;
-        self.opcode = opcode;
-    }
+pub const DEFAULT_PROGRAM_COUNTER: u16 = 0;
+pub const DEFAULT_STACK_POINTER: u8 = 0;
 
+impl Cpu {
+    #[cfg(test)]
+    pub fn program_counter(&self) -> u16 {
+        self.program_counter
+    }
+    #[cfg(test)]
+    pub fn register_x(&self) -> u8 {
+        self.register_x
+    }
+    #[cfg(test)]
+    pub fn register_y(&self) -> u8 {
+        self.register_y
+    }
+    #[cfg(test)]
+    pub fn accumulator(&self) -> u8 {
+        self.accumulator
+    }
     pub fn new() -> Self {
         Self {
             clock_tick: 0,
-            program_counter: 0,
-            stack_pointer: 0,
+            program_counter: DEFAULT_PROGRAM_COUNTER,
+            stack_pointer: DEFAULT_STACK_POINTER,
             accumulator: 0,
             register_x: 0,
             register_y: 0,
             status: CpuStatus::new(),
-            fetched_data: 0,
-            addr_abs: 0,
-            addr_rel: 0,
-            opcode: 0,
+            fetched_data: None,
+            addr_abs: None,
+            addr_rel: None,
+            opcode: None,
+            write_data: None,
         }
     }
 
-    pub fn tick(&mut self) {
-        self.clock_tick += 1;
+    pub fn tick(&mut self, memory: &mut AddressSpace) {
+        if self.clock_tick == 0 {
+            self.opcode = Some(memory.get_byte(self.program_counter));
+            self.clock_tick = self.process_opcode(memory);
+        }
+        self.clock_tick -= 1;
     }
 
-    pub fn process_opcode(&mut self, ram: &mut [u8]) -> u8 {
+    pub fn reset(&mut self) {
+        *self = Cpu::new();
+    }
+    fn fetched_data(&self) -> u8 {
+        self.fetched_data.expect("fetched_data wasn't set")
+    }
+    fn addr_abs(&self) -> u16 {
+        self.addr_abs.expect("addr_abs wasn't set")
+    }
+    fn addr_rel(&self) -> u16 {
+        self.addr_rel.expect("addr_rel wasn't set")
+    }
+    fn opcode(&self) -> u8 {
+        self.opcode.expect("opcode wasn't set")
+    }
+    fn write_data(&self) -> u8 {
+        self.write_data.expect("write_data wasn't set")
+    }
+    fn load(&mut self, fetched_data: u8, addr_abs: u16, addr_rel: u16, opcode: u8) {
+        self.fetched_data = Some(fetched_data);
+        self.addr_abs = Some(addr_abs);
+        self.addr_rel = Some(addr_rel);
+        self.opcode = Some(opcode);
+    }
+
+    fn process_opcode(&mut self, ram: &mut AddressSpace) -> u8 {
         // TODO Load data
-        let op = opcodes::OpCode::get(self.opcode);
+        let op = opcodes::OpCode::get(self.opcode());
         let mut clock_cycles_to_wait = op.cycles();
         if self.process_access_mode(ram, op.mode()) {
             clock_cycles_to_wait += 1;
         }
-        instructions::process_instruction(self, op.instruction());
+        println!("Running {op:#?}");
+        op.instruction_fn(self);
+        if op.instruction().is_branch() {
+            clock_cycles_to_wait += 1;
+        }
+        if let Some(data) = self.write_data {
+            ram.set_byte(self.addr_abs(), data);
+        }
         clock_cycles_to_wait
     }
 
-    fn process_access_mode(&mut self, ram: &mut [u8], mode: &AddressingMode) -> bool {
-        let zero_page_offset =
-            |val: u8| ram[self.program_counter as usize] as u16 + val as u16 & 0x00FF;
+    fn process_access_mode(&mut self, memory: &mut AddressSpace, mode: &AddressingMode) -> bool {
+        let add_extra_cycle = addressing::run_addressing(self, memory, mode);
 
-        let absolute_address_offset = |val: u8| {
-            let low = ram[self.program_counter as usize];
-            let high = ram[self.program_counter as usize + 1];
-            let mut addr_abs = (high as u16) << 8 | (low as u16);
-            addr_abs += val as u16;
-            let new_page = self.addr_abs & 0xFF00 != (high as u16) << 8;
-            (addr_abs, new_page)
-        };
-
-        match mode {
-            AddressingMode::XXX => false,
-            AddressingMode::IMM => {
-                self.addr_abs = self.program_counter + 1;
-                self.program_counter += 1;
-                false
-            }
-            AddressingMode::ZP0 => {
-                // The cast from u8 to u16 ensures it is on page zero.
-                self.addr_abs = ram[self.program_counter as usize] as u16;
-                self.program_counter += 1;
-                false
-            }
-            AddressingMode::ZPX => {
-                let addr_abs = zero_page_offset(self.register_x);
-                self.addr_abs = addr_abs;
-                self.program_counter += 1;
-                false
-            }
-            AddressingMode::ZPY => {
-                self.addr_abs = zero_page_offset(self.register_y);
-                self.program_counter += 1;
-                false
-            }
-            AddressingMode::ABS => {
-                let (addr_abs, _new_page) = absolute_address_offset(0);
-                self.program_counter += 2;
-                self.addr_abs = addr_abs;
-                false
-            }
-            AddressingMode::ABX => {
-                let (addr_abs, new_page) = absolute_address_offset(self.register_x);
-                self.program_counter += 2;
-                self.addr_abs = addr_abs;
-                new_page
-            }
-            AddressingMode::ABY => {
-                let (addr_abs, new_page) = absolute_address_offset(self.register_y);
-                self.program_counter += 2;
-                self.addr_abs = addr_abs;
-                new_page
-            }
-            AddressingMode::IND => {
-                let low = ram[self.program_counter as usize] as u16;
-                let high = ram[self.program_counter as usize + 1] as u16;
-                let addr_ptr = (high << 8 | low) as usize;
-
-                // Simulate hardware bug
-                let addr_abs = if low == 0x00FF {
-                    (ram[addr_ptr & 0xFF00] as u16) << 8 | ram[addr_ptr] as u16
-                } else {
-                    (ram[addr_ptr + 1] as u16) << 8 | ram[addr_ptr] as u16
-                };
-
-                self.addr_abs = addr_abs;
-                self.program_counter += 2;
-                false
-            }
-            AddressingMode::IZX => {
-                let offset_addr =
-                    (ram[self.program_counter as usize] as u16 + self.register_x as u16) as usize;
-                let low = ram[offset_addr & 0x00FF] as u16;
-                let high = ram[(offset_addr + 1) & 0x00FF] as u16;
-                let addr_abs = high << 8 | low;
-
-                self.addr_abs = addr_abs;
-                self.program_counter += 1;
-                false
-            }
-            AddressingMode::IZY => {
-                let offset_addr = (ram[self.program_counter as usize] as u16) as usize;
-                let low = ram[offset_addr & 0x00FF] as u16;
-                let high = ram[(offset_addr + 1) & 0x00FF] as u16;
-                let addr_abs = (high << 8 | low) + self.register_y as u16;
-
-                self.addr_abs = addr_abs;
-                self.program_counter += 1;
-                if (addr_abs & 0xFF00) != high << 8 {
-                    true
-                } else {
-                    false
-                }
-            }
-            AddressingMode::REL => {
-                self.addr_rel = ram[self.program_counter as usize] as u16;
-                self.program_counter += 1;
-                if self.addr_rel & 0x80 != 0 {
-                    self.addr_rel |= 0xFF00;
-                }
-                false
-            }
+        if let Some(addr) = self.addr_abs {
+            self.fetched_data = Some(memory.get_byte(addr));
+        } else if let Some(addr) = self.addr_rel {
+            self.fetched_data = Some(memory.get_byte(addr + self.program_counter));
         }
+        add_extra_cycle
     }
 }
 
+#[derive(Debug)]
 struct CpuStatus {
     register: u8,
 }
@@ -191,8 +151,8 @@ macro_rules! set_unset_get_def {
             }
 
             #[doc=concat!("Gets the ", stringify!($flag), " flag in the CPU status bitmask")]
-            fn [<get_ $flag:lower>](&self) {
-                self.get(&CpuStatusFlag::$flag);
+            fn [<get_ $flag:lower>](&self) -> bool {
+                self.get(&CpuStatusFlag::$flag)
             }
             )*
         }
