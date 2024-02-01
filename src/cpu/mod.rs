@@ -32,7 +32,7 @@ pub struct Cpu {
 }
 
 pub const DEFAULT_PROGRAM_COUNTER: u16 = 0;
-pub const DEFAULT_STACK_POINTER: u8 = 0;
+pub const DEFAULT_STACK_POINTER: u8 = 0xFD;
 
 impl Cpu {
     #[cfg(test)]
@@ -76,8 +76,14 @@ impl Cpu {
         self.clock_tick -= 1;
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, memory: &mut AddressSpace) {
         *self = Cpu::new();
+        // Get reset vector information
+        const RESET_VECTOR_ADDRESS: u16 = 0xFFFC;
+        let low = memory.get_byte(RESET_VECTOR_ADDRESS);
+        let high = memory.get_byte(RESET_VECTOR_ADDRESS + 1);
+        let program_counter = ((high as u16) << 8) | (low as u16);
+        self.program_counter = program_counter;
     }
     fn fetched_data(&self) -> u8 {
         self.fetched_data.expect("fetched_data wasn't set")
@@ -109,6 +115,7 @@ impl Cpu {
             clock_cycles_to_wait += 1;
         }
         println!("Running {op:#?}");
+        println!("pc = {}", self.program_counter);
         op.instruction_fn(self);
         if op.instruction().is_branch() {
             clock_cycles_to_wait += 1;

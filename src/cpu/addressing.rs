@@ -10,7 +10,11 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
         let high = memory.get_byte(cpu.program_counter + 1);
         let mut addr_abs = (high as u16) << 8 | (low as u16);
         addr_abs += val as u16;
-        let new_page = cpu.addr_abs() & 0xFF00 != (high as u16) << 8;
+        let new_page = if let Some(addr) = cpu.addr_abs {
+            addr & 0xFF00 != (high as u16) << 8
+        } else {
+            false
+        };
         (addr_abs, new_page)
     };
 
