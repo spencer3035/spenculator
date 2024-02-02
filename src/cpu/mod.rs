@@ -1,3 +1,5 @@
+use crate::consts::*;
+use crate::utils::*;
 use crate::AddressSpace;
 
 use self::opcodes::AddressingMode;
@@ -13,7 +15,7 @@ pub struct Cpu {
 
     // Registers
     program_counter: u16,
-    stack_pointer: u8,
+    stack_pointer: u16,
     accumulator: u8,
     register_x: u8,
     register_y: u8,
@@ -27,12 +29,7 @@ pub struct Cpu {
     addr_rel: Option<u16>,
     // Opcode that is currently being processed
     opcode: Option<u8>,
-    // Data that needs to be written to memory
-    write_data: Option<u8>,
 }
-
-pub const DEFAULT_PROGRAM_COUNTER: u16 = 0;
-pub const DEFAULT_STACK_POINTER: u8 = 0xFD;
 
 impl Cpu {
     #[cfg(test)]
@@ -64,7 +61,6 @@ impl Cpu {
             addr_abs: None,
             addr_rel: None,
             opcode: None,
-            write_data: None,
         }
     }
 
@@ -79,10 +75,9 @@ impl Cpu {
     pub fn reset(&mut self, memory: &mut AddressSpace) {
         *self = Cpu::new();
         // Get reset vector information
-        const RESET_VECTOR_ADDRESS: u16 = 0xFFFC;
         let low = memory.get_byte(RESET_VECTOR_ADDRESS);
         let high = memory.get_byte(RESET_VECTOR_ADDRESS + 1);
-        let program_counter = ((high as u16) << 8) | (low as u16);
+        let program_counter = concat_u8s_to_u16(low, high);
         self.program_counter = program_counter;
     }
     fn fetched_data(&self) -> u8 {
@@ -96,9 +91,6 @@ impl Cpu {
     }
     fn opcode(&self) -> u8 {
         self.opcode.expect("opcode wasn't set")
-    }
-    fn write_data(&self) -> u8 {
-        self.write_data.expect("write_data wasn't set")
     }
     fn load(&mut self, fetched_data: u8, addr_abs: u16, addr_rel: u16, opcode: u8) {
         self.fetched_data = Some(fetched_data);
@@ -115,14 +107,16 @@ impl Cpu {
             clock_cycles_to_wait += 1;
         }
         println!("Running {op:#?}");
-        println!("pc = {}", self.program_counter);
-        op.instruction_fn(self);
+        //println!("pc = {}", self.program_counter);
+        op.instruction_fn(self, ram);
         if op.instruction().is_branch() {
             clock_cycles_to_wait += 1;
         }
-        if let Some(data) = self.write_data {
-            ram.set_byte(self.addr_abs(), data);
-        }
+        // May want to remove these later. Not strictly required.
+        self.fetched_data = None;
+        self.addr_abs = None;
+        self.addr_rel = None;
+        self.opcode = None;
         clock_cycles_to_wait
     }
 
@@ -231,6 +225,15 @@ mod test {
             CpuStatusFlag::V,
             CpuStatusFlag::N,
         ]
+    }
+
+    #[test]
+    fn test_concat_and_split() {
+        for val in 0..u16::MAX {
+            let (low, high) = split_u16_to_u8s(val);
+            let new_val = concat_u8s_to_u16(low, high);
+            assert_eq!(val, new_val);
+        }
     }
 
     #[test]

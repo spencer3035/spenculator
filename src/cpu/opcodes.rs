@@ -3,10 +3,11 @@ use super::Cpu;
 pub struct OpCode {
     name: &'static str,
     instruction: Instruction,
+    machine_code: u8,
     // TODO: Make a pointer to the function corresponding to the instruction. It may be preferable
     // to get rid of the enum as well because it is a bit cumbersome to use in practice. Attaching
     // everything to the opcode is an attractive idea.
-    instruction_fn: &'static dyn Fn(&mut Cpu),
+    instruction_fn: &'static dyn Fn(&mut Cpu, &mut AddressSpace),
     mode: AddressingMode,
     cycles: u8,
     add_cycle_for_new_page: bool,
@@ -28,8 +29,8 @@ impl OpCode {
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
-    pub fn instruction_fn(&self, cpu: &mut Cpu) {
-        (self.instruction_fn)(cpu);
+    pub fn instruction_fn(&self, cpu: &mut Cpu, address_space: &mut AddressSpace) {
+        (self.instruction_fn)(cpu, address_space);
     }
     pub fn mode(&self) -> &AddressingMode {
         &self.mode
@@ -84,13 +85,14 @@ pub enum AddressingMode {
     ZPY, // Zero page indexing on y
 }
 
-use crate::cpu::instructions::*;
+use crate::{cpu::instructions::*, AddressSpace};
 // Macro to make the lookup table creation cleaner.
 macro_rules! format_lut {
     ($( ($ins:ident, $addr:ident, $cycles:expr, $extra:expr) ),* ) => {
         [$(OpCode {
             name : stringify!($ins),
             instruction: Instruction::$ins,
+            machine_code: 0,
             mode : AddressingMode::$addr,
             instruction_fn : &::paste::paste!([<$ins:lower>]),
             cycles : $cycles,

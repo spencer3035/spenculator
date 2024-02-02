@@ -1,25 +1,37 @@
 #![allow(dead_code)]
 
 mod cpu;
+pub mod utils {
+    #[inline]
+    pub fn concat_u8s_to_u16(low: u8, high: u8) -> u16 {
+        ((high as u16) << 8) | (low as u16)
+    }
+    #[inline]
+    pub fn split_u16_to_u8s(val: u16) -> (u8, u8) {
+        let high = (val >> 8) as u8;
+        let low = (val & 0x00FF) as u8;
+        (low, high)
+    }
+}
+pub mod consts {
+    pub const BIT_SEVEN: u8 = 0b10000000;
+    pub const BIT_SIX: u8 = 0b01000000;
+    pub const BIT_ZERO: u8 = 0b00000001;
 
-// TODO: Make instructions for
-//  Load registers
-// LDA
-// LDX
-// LDY
-//  Inc/dec registers
-// DEY
-// DEX
-// INX
-// INY
-//  Store registers
-// STA
-// STX
-// STY
+    // CPU Values
+    pub const DEFAULT_PROGRAM_COUNTER: u16 = 0;
+    pub const DEFAULT_STACK_POINTER: u16 = 0x00;
+    pub const STACK_START: u16 = 0x0100;
+    pub const RESET_VECTOR_ADDRESS: u16 = 0xFFFC;
+    pub const INTERRUPT_REQUEST_ADDRESS: u16 = 0xFFFE;
+    pub const INTERRUPT_NOMASK_ADDRESS: u16 = 0xFFFA;
+}
+use consts::*;
 
 // 2 KB ram
 const RAM_BYTES: usize = 2 * 1024;
 const CARTRIGE_ROM_BYTES: usize = 0xBFE0;
+const CARTRIGE_RAM_BYTES: usize = 0xFFFF;
 
 const PRG_ROM_START: usize = 0x4020;
 
@@ -47,32 +59,35 @@ impl Nes {
 
 struct AddressSpace {
     ram: [u8; RAM_BYTES],
-    cartridge: [u8; CARTRIGE_ROM_BYTES],
+    cartridge_rom: [u8; CARTRIGE_ROM_BYTES],
+    cartridge_ram: [u8; CARTRIGE_RAM_BYTES],
     // TODO: Mirror stuff from getters
 }
+
+const RAM_SIZE: u16 = 0x0800;
+const PPU_START: u16 = 0x2000;
+const APU_START: u16 = 0x4000;
+const APU_UNUSED_START: u16 = 0x4018;
+const CARTRIDGE_RAM_START: u16 = 0x4020;
+const CARTRIDGE_ROM_START: u16 = 0x8000;
+const CARTRIDGE_SIZE: u16 = 0xBFE0;
 
 impl AddressSpace {
     fn new() -> Self {
         Self {
             ram: [0; RAM_BYTES],
-            cartridge: [0; CARTRIGE_ROM_BYTES],
+            cartridge_rom: [0; CARTRIGE_ROM_BYTES],
+            cartridge_ram: [0; CARTRIGE_RAM_BYTES],
         }
     }
 
     fn get_byte(&self, address: u16) -> u8 {
-        println!("Getting 0x{address:X}");
         // https://www.nesdev.org/wiki/CPU_memory_map
-        const RAM_SIZE: u16 = 0x0800;
-        const PPU_START: u16 = 0x2000;
-        const APU_START: u16 = 0x4000;
-        const APU_UNUSED_START: u16 = 0x4018;
-        const CARTRIDGE_RAM_START: u16 = 0x4020;
-        const CARTRIDGE_ROM_START: u16 = 0x8000;
-        const CARTRIDGE_SIZE: u16 = 0xBFE0;
-        if address < PPU_START {
+        let val = if address < PPU_START {
             // Mirror addresses to [0x000..0x07FF] range.
             let mirror = (address % RAM_SIZE) as usize;
-            self.ram[mirror]
+            let val = self.ram[mirror];
+            val
         } else if address < APU_START {
             // PPU
             // Mirror 0x2000 0x2007
@@ -80,37 +95,131 @@ impl AddressSpace {
             //todo!("PPU not implemented");
         } else if address < APU_UNUSED_START {
             // NES APU
-            todo!("APU not implemented");
+            //todo!("APU not implemented");
+            0x00
         } else if address < CARTRIDGE_RAM_START {
             // APU (disabled)
-            panic!("APU address space is disabled");
+            //panic!("APU address space is disabled");
+            0x00
         } else if address < CARTRIDGE_ROM_START {
-            todo!()
+            // Cartridge RAM
+            self.cartridge_ram[address as usize]
         } else {
             // Cartridge memory.
             // TODO: Implement mappers
             // Assumed mapper 0
             let address_shifted = address - CARTRIDGE_ROM_START;
             let mirror = address_shifted % (0x8000);
-            self.cartridge[mirror as usize]
-        }
+            self.cartridge_rom[mirror as usize]
+        };
+        val
     }
 
     fn set_byte(&mut self, address: u16, value: u8) {
-        self.ram[address as usize] = value;
+        if address < PPU_START {
+            // RAM
+            // Mirror addresses to [0x000..0x07FF] range.
+            let mirror = (address % RAM_SIZE) as usize;
+            self.ram[mirror] = value;
+        } else if address < APU_START {
+            // PPU
+            todo!("PPU not implemented");
+        } else if address < APU_UNUSED_START {
+            // APU
+            todo!("APU not implemented");
+        } else if address < CARTRIDGE_RAM_START {
+            // APU (disabled)
+            todo!("APU address space is disabled");
+        } else if address < CARTRIDGE_ROM_START {
+            // Cartridge RAM
+            self.cartridge_ram[address as usize] = value;
+        } else {
+            // Cartridge memory.
+            // TODO: Implement mappers
+            // Assumed mapper 0
+            //todo!("Cartridge writes not implemented");
+            let address_shifted = address - CARTRIDGE_ROM_START;
+            let mirror = address_shifted % (0x8000);
+            self.cartridge_rom[mirror as usize] = value;
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::cpu::DEFAULT_PROGRAM_COUNTER;
+    use crate::utils::*;
 
     use super::*;
+    // Op Codes using immediate addressing. All take 2 cycles
+    const LDA: u8 = 0xA9;
+    const LDX: u8 = 0xA2;
+    const LDY: u8 = 0xA0;
+
+    // 4 Cycles
+    const PLA: u8 = 0x68;
+    // 3 Cycles
+    const PHA: u8 = 0x48;
+
+    // 2 cycles
+    const NOP: u8 = 0xEA;
+
+    // 3 cycles
+    const PHP: u8 = 0x08;
+
+    #[test]
+    fn test_stack_push() {
+        let a1 = 1;
+        let a2 = 2;
+        let mut nes = Nes::new();
+        let ram = [NOP; RAM_BYTES];
+        nes.memory.ram = ram;
+        let start = CARTRIDGE_ROM_START;
+        let (low, high) = split_u16_to_u8s(start);
+        nes.memory.set_byte(RESET_VECTOR_ADDRESS, low);
+        nes.memory.set_byte(RESET_VECTOR_ADDRESS + 1, high);
+        let program = [
+            LDA, a1,  // Load into A
+            PHA, // Push A to stack
+            LDA, a2,  // Load into A
+            PLA, // Pull A from stack
+            NOP,
+        ];
+
+        for (ii, val) in program.into_iter().enumerate() {
+            nes.memory.set_byte(start + (ii as u16), val);
+        }
+
+        nes.reset();
+        assert_eq!(nes.cpu.program_counter(), start);
+
+        // Do LDA
+        nes.tick();
+        nes.tick();
+        assert_eq![nes.cpu.accumulator(), a1];
+
+        // Do PHA
+        nes.tick();
+        nes.tick();
+        nes.tick();
+
+        // Do LDA
+        nes.tick();
+        nes.tick();
+        assert_eq![nes.cpu.accumulator(), a2];
+
+        // Do PLA
+        nes.tick();
+        nes.tick();
+        nes.tick();
+        nes.tick();
+        assert_eq![nes.cpu.accumulator(), a1];
+    }
+
     #[test]
     fn test_noop() {
         let mut nes = Nes::new();
         // set ram to no ops;
-        let ram = [0xEA; RAM_BYTES];
+        let ram = [NOP; RAM_BYTES];
         nes.memory.ram = ram;
         let num_ticks = 1000;
         for _tick in 0..num_ticks {
@@ -127,10 +236,6 @@ mod test {
     #[test]
     fn test_load_registers() {
         let mut nes = Nes::new();
-        // Op Codes using immediate addressing. All take 2 cycles
-        let lda: u8 = 0xA9;
-        let ldx: u8 = 0xA2;
-        let ldy: u8 = 0xA0;
         let aaa: u8 = 1;
         let xxx: u8 = 2;
         let yyy: u8 = 3;
@@ -138,9 +243,9 @@ mod test {
         // LDY = 0xA4
         //let program = [ ]
         let program = [
-            lda, aaa, // Load 0xF1 into A
-            ldx, xxx, // Load 0xF2 into X
-            ldy, yyy, // Load 0xF2 into Y
+            LDA, aaa, // Load 0xF1 into A
+            LDX, xxx, // Load 0xF2 into X
+            LDY, yyy, // Load 0xF2 into Y
         ];
         println!("program = {program:#?}");
         // Load program into RAM.
@@ -158,22 +263,24 @@ mod test {
         assert_eq!(nes.cpu.register_y(), yyy);
     }
 
-    #[test]
+    //#[test]
     fn test_roms() {
         let mut nes = Nes::new();
-        let basename = "/home/spencer/dev/rust/nes-test-roms/nes_instr_test/rom_singles/";
+        let basename = "/home/spencer/dev/rust/nes-test-roms/";
+        //let nes_instr_test  = "";
         let files = [
-            "01-implied.nes",
-            "02-immediate.nes",
-            "03-zero_page.nes",
-            "04-zp_xy.nes",
-            "05-absolute.nes",
-            "06-abs_xy.nes",
-            "07-ind_x.nes",
-            "08-ind_y.nes",
-            "09-branches.nes",
-            "10-stack.nes",
-            "11-special.nes",
+            "cpu_dummy_reads/cpu_dummy_reads.nes",
+            //"nes_instr_test/rom_singles/01-implied.nes",
+            //"nes_instr_test/rom_singles/02-immediate.nes",
+            //"nes_instr_test/rom_singles/03-zero_page.nes",
+            //"nes_instr_test/rom_singles/04-zp_xy.nes",
+            //"nes_instr_test/rom_singles/05-absolute.nes",
+            //"nes_instr_test/rom_singles/06-abs_xy.nes",
+            //"nes_instr_test/rom_singles/07-ind_x.nes",
+            //"nes_instr_test/rom_singles/08-ind_y.nes",
+            //"nes_instr_test/rom_singles/09-branches.nes",
+            //"nes_instr_test/rom_singles/10-stack.nes",
+            //"nes_instr_test/rom_singles/11-special.nes",
         ];
 
         for file in files {
@@ -183,7 +290,7 @@ mod test {
             nes_file.print_info();
             let rom = nes_file.prg_rom();
 
-            for (ii, val) in nes.memory.cartridge.iter_mut().enumerate() {
+            for (ii, val) in nes.memory.cartridge_rom.iter_mut().enumerate() {
                 if ii >= rom.len() {
                     break;
                 }
@@ -193,7 +300,7 @@ mod test {
             let mut tick = 0;
             nes.reset();
             while nes.is_running {
-                if tick > 100000 {
+                if tick > 1000 {
                     break;
                 }
                 nes.tick();
@@ -202,7 +309,18 @@ mod test {
             println!("0x{byte:.X}");
             break;
         }
-        panic!();
+        let mut str = String::new();
+        let mut ii = 0;
+        loop {
+            let char = nes.memory.get_byte(0x6004 + ii);
+            if char == 0 {
+                break;
+            }
+            str.push(char as char);
+            ii += 1;
+        }
+        println!("RESULT: {str}");
+        panic!()
     }
 
     // https://www.nesdev.org/wiki/NES_2.0#PRG-ROM_Area

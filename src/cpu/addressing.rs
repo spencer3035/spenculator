@@ -1,6 +1,8 @@
 use super::AddressingMode;
 use super::Cpu;
+use crate::utils::*;
 use crate::AddressSpace;
+
 pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &AddressingMode) -> bool {
     let zero_page_offset =
         |val: u8| memory.get_byte(cpu.program_counter) as u16 + val as u16 & 0x00FF;
@@ -8,7 +10,7 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
     let absolute_address_offset = |val: u8| {
         let low = memory.get_byte(cpu.program_counter);
         let high = memory.get_byte(cpu.program_counter + 1);
-        let mut addr_abs = (high as u16) << 8 | (low as u16);
+        let mut addr_abs = concat_u8s_to_u16(low, high);
         addr_abs += val as u16;
         let new_page = if let Some(addr) = cpu.addr_abs {
             addr & 0xFF00 != (high as u16) << 8
@@ -64,16 +66,19 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
             new_page
         }
         AddressingMode::IND => {
-            let low = memory.get_byte(cpu.program_counter) as u16;
-            let high = memory.get_byte(cpu.program_counter + 1) as u16;
-            let addr_ptr = high << 8 | low;
+            let low = memory.get_byte(cpu.program_counter);
+            let high = memory.get_byte(cpu.program_counter + 1);
+            let addr_ptr = concat_u8s_to_u16(low, high);
 
             // Simulate hardware bug
             let addr_abs = if low == 0x00FF {
-                ((memory.get_byte((addr_ptr & 0xFF00) as u16) as u16) << 8)
-                    | (memory.get_byte(addr_ptr) as u16)
+                let low = memory.get_byte(addr_ptr);
+                let high = memory.get_byte(addr_ptr & 0xFF00);
+                concat_u8s_to_u16(low, high)
             } else {
-                (memory.get_byte(addr_ptr + 1) as u16) << 8 | (memory.get_byte(addr_ptr) as u16)
+                let low = memory.get_byte(addr_ptr);
+                let high = memory.get_byte(addr_ptr + 1);
+                concat_u8s_to_u16(low, high)
             };
 
             cpu.addr_abs = Some(addr_abs);
@@ -82,9 +87,9 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
         }
         AddressingMode::IZX => {
             let offset_addr = memory.get_byte(cpu.program_counter) as u16 + cpu.register_x as u16;
-            let low = memory.get_byte(offset_addr & 0x00FF) as u16;
-            let high = memory.get_byte((offset_addr + 1) & 0x00FF) as u16;
-            let addr_abs = high << 8 | low;
+            let low = memory.get_byte(offset_addr & 0x00FF);
+            let high = memory.get_byte((offset_addr + 1) & 0x00FF);
+            let addr_abs = concat_u8s_to_u16(low, high);
 
             cpu.addr_abs = Some(addr_abs);
             cpu.program_counter += 1;
@@ -92,13 +97,13 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
         }
         AddressingMode::IZY => {
             let offset_addr = memory.get_byte(cpu.program_counter) as u16;
-            let low = memory.get_byte(offset_addr & 0x00FF) as u16;
-            let high = memory.get_byte((offset_addr + 1) & 0x00FF) as u16;
-            let addr_abs = (high << 8 | low) + cpu.register_y as u16;
+            let low = memory.get_byte(offset_addr & 0x00FF);
+            let high = memory.get_byte((offset_addr + 1) & 0x00FF);
+            let addr_abs = concat_u8s_to_u16(low, high) + cpu.register_y as u16;
 
             cpu.addr_abs = Some(addr_abs);
             cpu.program_counter += 1;
-            if (addr_abs & 0xFF00) != high << 8 {
+            if (addr_abs & 0xFF00) != (high as u16) << 8 {
                 true
             } else {
                 false
