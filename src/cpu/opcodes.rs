@@ -1,5 +1,7 @@
 /// Definition of what an opcode is
 use super::Cpu;
+use crate::{cpu::instructions::*, AddressSpace};
+
 pub struct OpCode {
     name: &'static str,
     instruction: Instruction,
@@ -85,24 +87,28 @@ pub enum AddressingMode {
     ZPY, // Zero page indexing on y
 }
 
-use crate::{cpu::instructions::*, AddressSpace};
-// Macro to make the lookup table creation cleaner.
+// This uses the unstable feature macro_metavar_expr with the ${index()} pattern
 macro_rules! format_lut {
-    ($( ($ins:ident, $addr:ident, $cycles:expr, $extra:expr) ),* ) => {
-        [$(OpCode {
-            name : stringify!($ins),
-            instruction: Instruction::$ins,
-            machine_code: 0,
-            mode : AddressingMode::$addr,
-            instruction_fn : &::paste::paste!([<$ins:lower>]),
-            cycles : $cycles,
-            add_cycle_for_new_page : $extra == 1,
-        },)*]
-    };
+    (
+        $( ($ins:ident, $addr:ident, $cycles:expr, $extra:expr) ),*
+    ) => {{
+        [
+        $(
+            OpCode {
+                name : stringify!($ins),
+                instruction: Instruction::$ins,
+                machine_code: ${index()},
+                mode : AddressingMode::$addr,
+                instruction_fn : &::paste::paste!([<$ins:lower>]),
+                cycles : $cycles,
+                add_cycle_for_new_page : $extra == 1,
+            },
+        )*
+        ]
+    }};
 }
 
 // Loopup table defined from here: http://www.oxyron.de/html/opcodes02.html
-// TODO: The branch instructions need to conditionally add 1 if the branch is taken
 
 /// Table of opcodes. Columns are lower byte and rows are higher byte in this format. The machine
 /// code interpreted directly as an index indexes into the array.
@@ -129,6 +135,12 @@ const OPCODE_LUT : [OpCode; 16*16] = format_lut!(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_machine_code() {
+        assert_eq!(OPCODE_LUT[0].machine_code, 0);
+        assert_eq!(OPCODE_LUT[1].machine_code, 1);
+    }
 
     #[test]
     fn test_lookup_table() {

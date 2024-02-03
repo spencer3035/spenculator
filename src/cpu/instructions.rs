@@ -59,18 +59,17 @@ fn check_overflow_ant_set_c(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn write_to_stack(cpu: &mut Cpu, io: &mut AddressSpace, val: u8) {
-    println!("START = {STACK_START}");
     println!("sp = {}", cpu.stack_pointer);
     println!("val = {}", val);
     let addr = STACK_START
         .checked_sub(cpu.stack_pointer as u16)
         .expect("STACK UNDERFLOW");
-    cpu.stack_pointer += 1;
+    cpu.stack_pointer -= 1;
     io.set_byte(addr, val);
 }
 #[inline]
 fn read_from_stack(cpu: &mut Cpu, io: &mut AddressSpace) -> u8 {
-    cpu.stack_pointer -= 1;
+    cpu.stack_pointer += 1;
     let addr = STACK_START - cpu.stack_pointer as u16;
     let val = io.get_byte(addr);
     println!("Read {val} from stack");
@@ -221,7 +220,7 @@ pub fn eor(cpu: &mut Cpu, _io: &mut AddressSpace) {
     check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn inc(cpu: &mut Cpu, io: &mut AddressSpace) {
-    let result = cpu.fetched_data() + 1;
+    let result = cpu.fetched_data().wrapping_add(1);
     check_z_and_n(cpu, result);
     io.set_byte(cpu.addr_abs(), result);
 }
@@ -445,7 +444,7 @@ pub fn txa(cpu: &mut Cpu, _io: &mut AddressSpace) {
     check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn txs(cpu: &mut Cpu, _io: &mut AddressSpace) {
-    cpu.stack_pointer = cpu.register_x as u16;
+    cpu.stack_pointer = cpu.register_x;
 }
 pub fn tya(cpu: &mut Cpu, _io: &mut AddressSpace) {
     cpu.accumulator = cpu.register_y;

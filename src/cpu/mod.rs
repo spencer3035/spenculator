@@ -2,7 +2,8 @@ use crate::consts::*;
 use crate::utils::*;
 use crate::AddressSpace;
 
-use self::opcodes::AddressingMode;
+use self::opcodes::Instruction;
+use self::opcodes::{AddressingMode, OpCode};
 
 mod addressing;
 mod instructions;
@@ -15,7 +16,7 @@ pub struct Cpu {
 
     // Registers
     program_counter: u16,
-    stack_pointer: u16,
+    stack_pointer: u8,
     accumulator: u8,
     register_x: u8,
     register_y: u8,
@@ -64,12 +65,16 @@ impl Cpu {
         }
     }
 
-    pub fn tick(&mut self, memory: &mut AddressSpace) {
+    pub fn tick(&mut self, memory: &mut AddressSpace) -> bool {
         if self.clock_tick == 0 {
-            self.opcode = Some(memory.get_byte(self.program_counter));
-            self.clock_tick = self.process_opcode(memory);
+            let opcode = OpCode::get(memory.get_byte(self.program_counter));
+            if *opcode.instruction() == Instruction::KIL {
+                return false;
+            }
+            self.clock_tick = self.process_opcode(opcode, memory);
         }
         self.clock_tick -= 1;
+        true
     }
 
     pub fn reset(&mut self, memory: &mut AddressSpace) {
@@ -99,9 +104,8 @@ impl Cpu {
         self.opcode = Some(opcode);
     }
 
-    fn process_opcode(&mut self, ram: &mut AddressSpace) -> u8 {
+    fn process_opcode(&mut self, op: &OpCode, ram: &mut AddressSpace) -> u8 {
         // TODO Load data
-        let op = opcodes::OpCode::get(self.opcode());
         let mut clock_cycles_to_wait = op.cycles();
         if self.process_access_mode(ram, op.mode()) {
             clock_cycles_to_wait += 1;
