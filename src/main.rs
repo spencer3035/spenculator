@@ -5,6 +5,7 @@ use consts::*;
 use utils::split_u16_to_u8s;
 
 mod cpu;
+mod nes_file;
 
 pub mod utils {
     #[inline]
@@ -37,72 +38,6 @@ pub mod consts {
 
     // NES Address constants
 }
-pub mod nes_file {
-    use crate::consts::*;
-    // https://www.nesdev.org/wiki/NES_2.0#PRG-ROM_Area
-    pub struct NesFile {
-        bytes: Vec<u8>,
-        prg_rom: u8,
-        prg_rom_size: u8,
-        chr_rom: u8,
-        chr_rom_size: u8,
-    }
-    impl NesFile {
-        fn prg_rom_size(&self) -> usize {
-            if self.prg_rom_size != 0 {
-                panic!("PRG ROM SIZE MULTIPLIER NOT HANDLED");
-            }
-            (self.prg_rom as usize) * 16 * KILOBYTE
-        }
-        fn chr_rom_size(&self) -> usize {
-            if self.chr_rom_size != 0 {
-                panic!("CHR ROM SIZE MULTIPLIER NOT HANDLED");
-            }
-            (self.chr_rom as usize) * 8 * KILOBYTE
-        }
-        pub fn prg_rom(&self) -> Vec<u8> {
-            let prg_rom_start = 16;
-            let prg_rom_end = prg_rom_start + self.prg_rom_size();
-            self.bytes[prg_rom_start..prg_rom_end].to_vec()
-        }
-        pub fn print_info(&self) {
-            let prg_len = self.prg_rom_size();
-            let chr_len = self.chr_rom_size();
-            let prg_start = 16;
-            let prg_end = prg_start + prg_len;
-            let chr_start = prg_end + 1;
-            let chr_end = chr_start + chr_len;
-            println!("header 0x00..0xFF");
-            println!("trainer 0xFF..0xFF");
-            println!("prg = 0x{prg_start:.X}..0x{prg_end:.X}");
-            println!("chr size = 0x{chr_start:.X}..0x{chr_end:.X}");
-        }
-        pub fn try_from_file<P>(file_name: P) -> Self
-        where
-            P: AsRef<std::path::Path>,
-        {
-            let bytes = std::fs::read(file_name).unwrap();
-            let is_ines_format =
-                bytes[0] == b'N' && bytes[1] == b'E' && bytes[2] == b'S' && bytes[3] == 0x1A;
-            let _is_ines_2_format = is_ines_format && bytes[7] == 0x08;
-
-            let prg_rom = bytes[4];
-            let chr_rom = bytes[5];
-
-            let prg_rom_size = bytes[9] >> 4;
-            let chr_rom_size = bytes[9] & 0x0F;
-
-            assert!(is_ines_format);
-            Self {
-                bytes,
-                prg_rom,
-                chr_rom,
-                prg_rom_size,
-                chr_rom_size,
-            }
-        }
-    }
-}
 
 // 2 KB ram
 const RAM_BYTES: usize = 2 * 1024;
@@ -113,24 +48,32 @@ const PRG_ROM_START: usize = 0x4020;
 
 struct Nes {
     cpu: cpu::Cpu,
-    memory: AddressSpace,
+    memory: Box<dyn AddressSpaceTrait>,
     is_running: bool,
 }
 
 impl Nes {
     fn reset(&mut self) {
-        self.cpu.reset(&mut self.memory);
+        self.cpu.reset(self.memory.as_mut());
     }
     fn new() -> Self {
         Nes {
             cpu: cpu::Cpu::new(),
-            memory: AddressSpace::new(),
+            memory: Box::new(NesAddressSpace::new()),
+            is_running: true,
+        }
+    }
+    #[cfg(test)]
+    fn new_test() -> Self {
+        Nes {
+            cpu: cpu::Cpu::new(),
+            memory: Box::new(TestAddressSpace::new()),
             is_running: true,
         }
     }
     // Returns false if something fails
     fn tick(&mut self) -> bool {
-        self.cpu.tick(&mut self.memory)
+        self.cpu.tick(self.memory.as_mut())
     }
 }
 
@@ -139,10 +82,42 @@ struct Cartridge {
     ram: [u8; CARTRIGE_RAM_BYTES],
 }
 
-struct AddressSpace {
+trait AddressSpaceTrait: 'static {
+    fn get_byte(&self, address: u16) -> u8;
+    fn set_byte(&mut self, address: u16, value: u8);
+
+    // Provided
+    fn set_reset_vector(&mut self, val: u16) {
+        let (low, high) = split_u16_to_u8s(val);
+        self.set_byte(RESET_VECTOR_ADDRESS, low);
+        self.set_byte(RESET_VECTOR_ADDRESS + 1, high);
+    }
+}
+
+struct NesAddressSpace {
     ram: [u8; RAM_BYTES],
     cartridge: Cartridge,
     // TODO: Mirror stuff from getters
+}
+
+struct TestAddressSpace {
+    ram: [u8; 0x10000],
+    // TODO: Mirror stuff from getters
+}
+
+impl AddressSpaceTrait for TestAddressSpace {
+    fn get_byte(&self, address: u16) -> u8 {
+        self.ram[address as usize]
+    }
+    fn set_byte(&mut self, address: u16, value: u8) {
+        self.ram[address as usize] = value;
+    }
+}
+
+impl TestAddressSpace {
+    fn new() -> Self {
+        TestAddressSpace { ram: [0; 0x10000] }
+    }
 }
 
 const RAM_SIZE: u16 = 0x0800;
@@ -153,12 +128,7 @@ const CARTRIDGE_RAM_START: u16 = 0x4020;
 const CARTRIDGE_ROM_START: u16 = 0x8000;
 const CARTRIDGE_SIZE: u16 = 0xBFE0;
 
-impl AddressSpace {
-    pub fn set_reset_vector(&mut self, val: u16) {
-        let (low, high) = split_u16_to_u8s(val);
-        self.set_byte(RESET_VECTOR_ADDRESS, low);
-        self.set_byte(RESET_VECTOR_ADDRESS + 1, high);
-    }
+impl NesAddressSpace {
     fn new() -> Self {
         Self {
             ram: [0; RAM_BYTES],
@@ -168,7 +138,8 @@ impl AddressSpace {
             },
         }
     }
-
+}
+impl AddressSpaceTrait for NesAddressSpace {
     fn get_byte(&self, address: u16) -> u8 {
         // https://www.nesdev.org/wiki/CPU_memory_map
         let val = if address < PPU_START {
@@ -346,10 +317,12 @@ mod test {
             num_ticks += 1;
         }
 
-        // Nop takes 2 clock cycles so program counter should be on start + 1000/2;
+        // Nop takes 2 clock cycles so program counter should be on start + 1000/2, but the last
+        // kill instruction takes an additional tick
+        let expected_ticks = num_ticks / 2 + 1;
         assert_eq!(
             nes.cpu.program_counter(),
-            initial_program_counter + num_ticks / 2
+            initial_program_counter + expected_ticks
         );
     }
 
@@ -380,9 +353,32 @@ mod test {
     }
 
     #[test]
+    fn test_6502() {
+        let file = "/home/spencer/dev/rust/6502_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
+        let mut nes = Nes::new_test();
+        for (ii, byte) in std::fs::read(file).unwrap().into_iter().enumerate() {
+            nes.memory.set_byte(ii as u16, byte);
+        }
+
+        nes.cpu.set_program_counter(0x400);
+        let max_tick = 100000;
+        let mut tick = 0;
+        loop {
+            if tick > max_tick {
+                panic!();
+            }
+            if !nes.tick() {
+                break;
+            }
+            tick += 1;
+        }
+        println!("Ticked {tick} times");
+        panic!()
+    }
+    //#[test]
     fn test_roms() {
         let mut nes = Nes::new();
-        let basename = "/home/spencer/dev/rust/nes-test-roms/";
+        let basename = "/home/spencer/dev/rust/6502_tests/nes-test-roms/";
         // pha plp php pla
         // x48 x28 x08 x68
         let files = [
@@ -409,11 +405,10 @@ mod test {
             nes_file.print_info();
             let rom = nes_file.prg_rom();
 
-            for (ii, val) in nes.memory.cartridge.rom.iter_mut().enumerate() {
-                if ii >= rom.len() {
-                    break;
-                }
-                *val = rom[ii];
+            // Set rom
+            for (ii, val) in rom.into_iter().enumerate() {
+                let ii = ii as u16;
+                nes.memory.set_byte(CARTRIDGE_ROM_START + ii, val)
             }
             let byte = nes.memory.get_byte(0xFFFE);
             let mut tick = 0;

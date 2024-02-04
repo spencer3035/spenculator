@@ -1,6 +1,6 @@
 use crate::consts::*;
 use crate::utils::*;
-use crate::AddressSpace;
+use crate::AddressSpaceTrait;
 
 use self::opcodes::Instruction;
 use self::opcodes::{AddressingMode, OpCode};
@@ -38,6 +38,10 @@ impl Cpu {
         self.program_counter
     }
     #[cfg(test)]
+    pub fn set_program_counter(&mut self, val: u16) {
+        self.program_counter = val;
+    }
+    #[cfg(test)]
     pub fn register_x(&self) -> u8 {
         self.register_x
     }
@@ -65,19 +69,26 @@ impl Cpu {
         }
     }
 
-    pub fn tick(&mut self, memory: &mut AddressSpace) -> bool {
+    pub fn tick(&mut self, memory: &mut dyn AddressSpaceTrait) -> bool {
         if self.clock_tick == 0 {
+            let initial_pc = self.program_counter;
             let opcode = OpCode::get(memory.get_byte(self.program_counter));
-            if *opcode.instruction() == Instruction::KIL {
+
+            self.program_counter += 1;
+            self.clock_tick = self.process_opcode(opcode, memory);
+
+            let final_pc = self.program_counter;
+            let infinite_loop = initial_pc == final_pc;
+            let halt = *opcode.instruction() == Instruction::KIL;
+            if infinite_loop || halt {
                 return false;
             }
-            self.clock_tick = self.process_opcode(opcode, memory);
         }
         self.clock_tick -= 1;
         true
     }
 
-    pub fn reset(&mut self, memory: &mut AddressSpace) {
+    pub fn reset(&mut self, memory: &mut dyn AddressSpaceTrait) {
         *self = Cpu::new();
         // Get reset vector information
         let low = memory.get_byte(RESET_VECTOR_ADDRESS);
@@ -104,14 +115,12 @@ impl Cpu {
         self.opcode = Some(opcode);
     }
 
-    fn process_opcode(&mut self, op: &OpCode, ram: &mut AddressSpace) -> u8 {
+    fn process_opcode(&mut self, op: &OpCode, ram: &mut dyn AddressSpaceTrait) -> u8 {
         // TODO Load data
         let mut clock_cycles_to_wait = op.cycles();
         if self.process_access_mode(ram, op.mode()) {
             clock_cycles_to_wait += 1;
         }
-        println!("Running {op:#?}");
-        //println!("pc = {}", self.program_counter);
         op.instruction_fn(self, ram);
         if op.instruction().is_branch() {
             clock_cycles_to_wait += 1;
@@ -124,13 +133,17 @@ impl Cpu {
         clock_cycles_to_wait
     }
 
-    fn process_access_mode(&mut self, memory: &mut AddressSpace, mode: &AddressingMode) -> bool {
+    fn process_access_mode(
+        &mut self,
+        memory: &mut dyn AddressSpaceTrait,
+        mode: &AddressingMode,
+    ) -> bool {
         let add_extra_cycle = addressing::run_addressing(self, memory, mode);
 
         if let Some(addr) = self.addr_abs {
             self.fetched_data = Some(memory.get_byte(addr));
         } else if let Some(addr) = self.addr_rel {
-            self.fetched_data = Some(memory.get_byte(addr + self.program_counter));
+            self.fetched_data = Some(memory.get_byte(addr.wrapping_add(self.program_counter)));
         }
         add_extra_cycle
     }

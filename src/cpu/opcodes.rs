@@ -1,6 +1,6 @@
 /// Definition of what an opcode is
 use super::Cpu;
-use crate::{cpu::instructions::*, AddressSpace};
+use crate::{cpu::instructions::*, AddressSpaceTrait};
 
 pub struct OpCode {
     name: &'static str,
@@ -9,7 +9,7 @@ pub struct OpCode {
     // TODO: Make a pointer to the function corresponding to the instruction. It may be preferable
     // to get rid of the enum as well because it is a bit cumbersome to use in practice. Attaching
     // everything to the opcode is an attractive idea.
-    instruction_fn: &'static dyn Fn(&mut Cpu, &mut AddressSpace),
+    instruction_fn: &'static dyn Fn(&mut Cpu, &mut dyn AddressSpaceTrait),
     mode: AddressingMode,
     cycles: u8,
     add_cycle_for_new_page: bool,
@@ -31,7 +31,7 @@ impl OpCode {
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
-    pub fn instruction_fn(&self, cpu: &mut Cpu, address_space: &mut AddressSpace) {
+    pub fn instruction_fn(&self, cpu: &mut Cpu, address_space: &mut dyn AddressSpaceTrait) {
         (self.instruction_fn)(cpu, address_space);
     }
     pub fn mode(&self) -> &AddressingMode {

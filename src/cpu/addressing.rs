@@ -1,9 +1,13 @@
 use super::AddressingMode;
 use super::Cpu;
 use crate::utils::*;
-use crate::AddressSpace;
+use crate::AddressSpaceTrait;
 
-pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &AddressingMode) -> bool {
+pub fn run_addressing(
+    cpu: &mut Cpu,
+    memory: &mut dyn AddressSpaceTrait,
+    mode: &AddressingMode,
+) -> bool {
     let zero_page_offset =
         |val: u8| memory.get_byte(cpu.program_counter) as u16 + val as u16 & 0x00FF;
 
@@ -21,13 +25,10 @@ pub fn run_addressing(cpu: &mut Cpu, memory: &mut AddressSpace, mode: &Addressin
     };
 
     match mode {
-        AddressingMode::XXX => {
-            cpu.program_counter += 1;
-            false
-        }
+        AddressingMode::XXX => false,
         AddressingMode::IMM => {
-            cpu.addr_abs = Some(cpu.program_counter + 1);
-            cpu.program_counter += 2;
+            cpu.addr_abs = Some(cpu.program_counter);
+            cpu.program_counter += 1;
             false
         }
         AddressingMode::ZP0 => {
