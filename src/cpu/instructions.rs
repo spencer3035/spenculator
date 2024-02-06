@@ -17,24 +17,23 @@ macro_rules! match_instruction {
         };
     }
 
-match_instruction!(
-    ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
-    CLD, CLI, CLV, CMP, CPX, CPY, DCP, DEC, DEX, DEY, EOR, INC, INX, INY, ISC, JMP, JSR, KIL, LAS,
-    LAX, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, RLA, ROL, ROR, RRA, RTI, RTS, SAX, SBC,
-    SEC, SED, SEI, SHX, SHY, SLO, SRE, STA, STX, STY, TAS, TAX, TAY, TSX, TXA, TXS, TYA, XAA
-);
-
 // Utility functions to make code slightly cleaner
 #[inline]
 fn cmp_val(cpu: &mut Cpu, val: u8) {
     if val >= cpu.fetched_data() {
         cpu.status.set_c();
+    } else {
+        cpu.status.unset_c();
     }
     if val == cpu.fetched_data() {
         cpu.status.set_z();
+    } else {
+        cpu.status.unset_z();
     }
     if val.wrapping_sub(cpu.fetched_data()) & BIT_SEVEN != 1 {
         cpu.status.set_n();
+    } else {
+        cpu.status.unset_n();
     }
 }
 #[inline]
@@ -46,11 +45,15 @@ fn check_z_and_n(cpu: &mut Cpu, val: u8) {
 fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
     if val == 0 {
         cpu.status.set_z();
+    } else {
+        cpu.status.unset_z();
     }
 }
 #[inline]
 fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
     if val & BIT_SEVEN == 0 {
+        cpu.status.unset_n();
+    } else {
         cpu.status.set_n();
     }
 }
@@ -58,12 +61,12 @@ fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
 fn check_overflow_ant_set_c(cpu: &mut Cpu, val: u8) {
     if val & BIT_SEVEN == 0 {
         cpu.status.set_n();
+    } else {
+        cpu.status.unset_n();
     }
 }
 #[inline]
 fn write_to_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait, val: u8) {
-    println!("sp = {}", cpu.stack_pointer);
-    println!("val = {}", val);
     let addr = STACK_START
         .checked_sub(cpu.stack_pointer as u16)
         .expect("STACK UNDERFLOW");
@@ -75,7 +78,6 @@ fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
     cpu.stack_pointer += 1;
     let addr = STACK_START - cpu.stack_pointer as u16;
     let val = io.get_byte(addr);
-    println!("Read {val} from stack");
     val
 }
 
@@ -125,17 +127,17 @@ pub fn axs(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 pub fn bcc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if !cpu.status.get_c() {
         // branch
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn bcs(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if cpu.status.get_c() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn beq(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if cpu.status.get_z() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn bit(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -155,17 +157,17 @@ pub fn bit(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn bmi(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if cpu.status.get_n() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn bne(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if !cpu.status.get_z() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn bpl(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if !cpu.status.get_z() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn brk(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
@@ -173,12 +175,12 @@ pub fn brk(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
 }
 pub fn bvc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if !cpu.status.get_v() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn bvs(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if cpu.status.get_v() {
-        cpu.program_counter += cpu.addr_rel();
+        cpu.addr_rel_add();
     }
 }
 pub fn clc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -312,6 +314,7 @@ pub fn rol(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
             cpu.status.set_c();
             true
         } else {
+            cpu.status.unset_c();
             false
         };
         let mut val = val << 1;
@@ -336,6 +339,7 @@ pub fn ror(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
             cpu.status.set_c();
             true
         } else {
+            cpu.status.unset_c();
             false
         };
         let mut val = val >> 1;
@@ -482,3 +486,41 @@ fn inturrupt_and_set_program_counter(
     let high = io.get_byte(pc_address + 1);
     cpu.program_counter = concat_u8s_to_u16(low, high);
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_instructions() {
+        let mut cpu = Cpu::new();
+
+        cpu.fetched_data = Some(1);
+        let val = 0;
+        cmp_val(&mut cpu, val);
+        cpu.fetched_data = None;
+        assert!(cpu.status.get_n());
+
+        let val = 1;
+        check_z_and_n(&mut cpu, val);
+        assert!(!cpu.status.get_z());
+        assert!(!cpu.status.get_n());
+
+        let val = 0;
+        check_z_and_n(&mut cpu, val);
+        assert!(cpu.status.get_z());
+        assert!(!cpu.status.get_n());
+
+        let val = 0xFF;
+        check_z_and_n(&mut cpu, val);
+        assert!(!cpu.status.get_z());
+        assert!(cpu.status.get_n());
+    }
+}
+
+match_instruction!(
+    ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
+    CLD, CLI, CLV, CMP, CPX, CPY, DCP, DEC, DEX, DEY, EOR, INC, INX, INY, ISC, JMP, JSR, KIL, LAS,
+    LAX, LDA, LDX, LDY, LSR, NOP, ORA, PHA, PHP, PLA, PLP, RLA, ROL, ROR, RRA, RTI, RTS, SAX, SBC,
+    SEC, SED, SEI, SHX, SHY, SLO, SRE, STA, STX, STY, TAS, TAX, TAY, TSX, TXA, TXS, TYA, XAA
+);

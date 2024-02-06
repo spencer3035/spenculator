@@ -111,13 +111,19 @@ pub fn run_addressing(
             }
         }
         AddressingMode::REL => {
-            let mut addr_rel = memory.get_byte(cpu.program_counter) as u16;
-            if addr_rel & 0x80 != 0 {
-                addr_rel |= 0xFF00;
-            }
+            let addr_rel = memory.get_byte(cpu.program_counter);
             cpu.addr_rel = Some(addr_rel);
             cpu.program_counter += 1;
             false
         }
+    }
+}
+#[cfg(test)]
+mod test {
+    use crate::consts::*;
+
+    #[test]
+    fn test_addr_rel() {
+        assert_eq!(0x80, BIT_SEVEN);
     }
 }

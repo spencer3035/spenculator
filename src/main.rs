@@ -251,6 +251,52 @@ mod test {
         nes
     }
 
+    fn add_negative_twos_complement(base: u16, rhs: u8) -> u16 {
+        if rhs & BIT_SEVEN == 0 {
+            // Positive
+            println!("Positive");
+            base + (rhs as u16)
+        } else {
+            // Negative
+            println!("Negative");
+            (base + ((rhs & !BIT_SEVEN) as u16)) - (BIT_SEVEN as u16)
+        }
+    }
+
+    #[test]
+    fn test_basic_dex() {
+        //  LDX #$08
+        //decrement:
+        //  DEX
+        //  STX $0200
+        //  CPX #$03
+        //  BNE decrement
+        //  STX $0201
+        //  BRK
+        //
+        let program = vec![
+            0xA2, 0x08, // LDX #$08
+            0xCA, // DEX
+            0x8E, 0x00, 0x02, // STX $0200
+            0xE0, 0x03, // CPX #$03
+            0xD0, 0xF8, // BNE -6
+            0x8E, 0x01, 0x02, // STX $0201
+            0x00, // BRK
+        ];
+        let mut nes = init_nes_with_program(&program);
+        let max_ticks = 10000;
+        let mut ticks = 0;
+        while nes.tick() {
+            if ticks >= max_ticks {
+                panic!("Exceeded max ticks!");
+            }
+            ticks += 1;
+        }
+
+        println!("Number of ticks = {ticks}");
+        assert_eq!(nes.cpu.register_x(), 3);
+    }
+
     #[test]
     fn test_cart_ram_write() {
         let mut nes = Nes::new();
@@ -372,6 +418,7 @@ mod test {
             }
             tick += 1;
         }
+        println!("{:?}", nes.cpu);
         println!("Ticked {tick} times");
         panic!()
     }

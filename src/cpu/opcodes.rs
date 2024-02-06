@@ -28,6 +28,9 @@ impl std::fmt::Debug for OpCode {
 }
 
 impl OpCode {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }

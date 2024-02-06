@@ -27,32 +27,12 @@ pub struct Cpu {
     // Absolute address received
     addr_abs: Option<u16>,
     // Relative address received
-    addr_rel: Option<u16>,
+    addr_rel: Option<u8>,
     // Opcode that is currently being processed
     opcode: Option<u8>,
 }
 
 impl Cpu {
-    #[cfg(test)]
-    pub fn program_counter(&self) -> u16 {
-        self.program_counter
-    }
-    #[cfg(test)]
-    pub fn set_program_counter(&mut self, val: u16) {
-        self.program_counter = val;
-    }
-    #[cfg(test)]
-    pub fn register_x(&self) -> u8 {
-        self.register_x
-    }
-    #[cfg(test)]
-    pub fn register_y(&self) -> u8 {
-        self.register_y
-    }
-    #[cfg(test)]
-    pub fn accumulator(&self) -> u8 {
-        self.accumulator
-    }
     pub fn new() -> Self {
         Self {
             clock_tick: 0,
@@ -73,6 +53,17 @@ impl Cpu {
         if self.clock_tick == 0 {
             let initial_pc = self.program_counter;
             let opcode = OpCode::get(memory.get_byte(self.program_counter));
+            println!(
+                "0x{:X} : {}, x={}",
+                self.program_counter,
+                opcode.name(),
+                self.register_x
+            );
+            if self.program_counter == 0x04e5 {
+                println!("Cpu : {:#?}", self);
+            }
+            //println!("PC = 0x{:X}", self.program_counter);
+            //println!("Running {opcode:#?}");
 
             self.program_counter += 1;
             self.clock_tick = self.process_opcode(opcode, memory);
@@ -81,6 +72,13 @@ impl Cpu {
             let infinite_loop = initial_pc == final_pc;
             let halt = *opcode.instruction() == Instruction::KIL;
             if infinite_loop || halt {
+                if infinite_loop {
+                    println!("Hit infinite loop!");
+                    println!("Cpu : {:#?}", self);
+                }
+                if halt {
+                    println!("Halting.");
+                }
                 return false;
             }
         }
@@ -102,17 +100,25 @@ impl Cpu {
     fn addr_abs(&self) -> u16 {
         self.addr_abs.expect("addr_abs wasn't set")
     }
-    fn addr_rel(&self) -> u16 {
-        self.addr_rel.expect("addr_rel wasn't set")
+    fn addr_rel_add(&mut self) {
+        let addr_rel = self.addr_rel.expect("addr_rel wasn't set");
+        let rhs = addr_rel;
+        if rhs == 64 {
+            println!("CPU1 == {:#?}", self);
+        }
+        if self.program_counter == 0x4E5 {
+            println!("CPU2 == {:#?}", self);
+        }
+        self.program_counter = if rhs & BIT_SEVEN == 0 {
+            // Positive
+            self.program_counter + (rhs as u16)
+        } else {
+            // Negative
+            (self.program_counter + ((rhs & !BIT_SEVEN) as u16)) - (BIT_SEVEN as u16)
+        };
     }
     fn opcode(&self) -> u8 {
         self.opcode.expect("opcode wasn't set")
-    }
-    fn load(&mut self, fetched_data: u8, addr_abs: u16, addr_rel: u16, opcode: u8) {
-        self.fetched_data = Some(fetched_data);
-        self.addr_abs = Some(addr_abs);
-        self.addr_rel = Some(addr_rel);
-        self.opcode = Some(opcode);
     }
 
     fn process_opcode(&mut self, op: &OpCode, ram: &mut dyn AddressSpaceTrait) -> u8 {
@@ -125,7 +131,7 @@ impl Cpu {
         if op.instruction().is_branch() {
             clock_cycles_to_wait += 1;
         }
-        // May want to remove these later. Not strictly required.
+        // May want to remove these later. Good for debugging, but not strictly required.
         self.fetched_data = None;
         self.addr_abs = None;
         self.addr_rel = None;
@@ -143,15 +149,31 @@ impl Cpu {
         if let Some(addr) = self.addr_abs {
             self.fetched_data = Some(memory.get_byte(addr));
         } else if let Some(addr) = self.addr_rel {
-            self.fetched_data = Some(memory.get_byte(addr.wrapping_add(self.program_counter)));
+            self.fetched_data =
+                Some(memory.get_byte(self.program_counter.wrapping_add(addr as u16)));
         }
         add_extra_cycle
     }
 }
 
-#[derive(Debug)]
 struct CpuStatus {
     register: u8,
+}
+
+use std::fmt;
+impl fmt::Debug for CpuStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CpuStatus")
+            .field("c", &self.get_c())
+            .field("z", &self.get_z())
+            .field("i", &self.get_i())
+            .field("d", &self.get_d())
+            .field("b", &self.get_b())
+            .field("u", &self.get_u())
+            .field("v", &self.get_v())
+            .field("n", &self.get_n())
+            .finish()
+    }
 }
 
 macro_rules! set_unset_get_def {
@@ -174,7 +196,6 @@ macro_rules! set_unset_get_def {
             }
             )*
         }
-
     };
 }
 
@@ -242,6 +263,44 @@ mod test {
             CpuStatusFlag::V,
             CpuStatusFlag::N,
         ]
+    }
+
+    impl Cpu {
+        pub fn program_counter(&self) -> u16 {
+            self.program_counter
+        }
+        pub fn set_program_counter(&mut self, val: u16) {
+            self.program_counter = val;
+        }
+        pub fn register_x(&self) -> u8 {
+            self.register_x
+        }
+        pub fn register_y(&self) -> u8 {
+            self.register_y
+        }
+        pub fn accumulator(&self) -> u8 {
+            self.accumulator
+        }
+    }
+
+    #[test]
+    fn test_addr_rel() {
+        let mut cpu = Cpu::new();
+        for addr in 0x00..0xFF {
+            let is_negative = addr >= 128;
+
+            let start: u16 = 300;
+            let expected = if is_negative {
+                start + (addr & !BIT_SEVEN) as u16 - 128
+            } else {
+                start + addr as u16
+            };
+
+            cpu.addr_rel = Some(addr);
+            cpu.program_counter = start;
+            cpu.addr_rel_add();
+            assert_eq!(cpu.program_counter, expected);
+        }
     }
 
     #[test]
