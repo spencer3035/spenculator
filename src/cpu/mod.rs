@@ -49,24 +49,77 @@ impl Cpu {
         }
     }
 
+    pub fn print_stack(&self, memory: &dyn AddressSpaceTrait) {
+        let mut counter = self.stack_pointer as u16;
+        let mut str = String::new();
+        while counter < 0xFF {
+            let val = memory.get_byte(STACK_BEGIN + counter + 1);
+            str.push_str(&format!("{val} "));
+            if counter == 0xFF {
+                break;
+            }
+            counter += 1;
+        }
+        if !str.is_empty() {
+            println!("STACK = {str}");
+        }
+    }
+
+    pub fn debug_print(&self, memory: &dyn AddressSpaceTrait, op: &OpCode, program_counter: u16) {
+        let value = {
+            let mut str = String::new();
+            if let Some(addr) = self.addr_abs {
+                str.push_str(&format!(
+                    "#${addr:0>4X} ({0:0>3} / 0x{0:0>2X} / 0b{0:0>8b})",
+                    self.fetched_data()
+                ));
+            }
+            if let Some(addr) = self.addr_rel {
+                let rhs = addr;
+                let new_value: i16 = if rhs & BIT_SEVEN == 0 {
+                    // Positive
+                    rhs as i16
+                } else {
+                    // Negative
+                    ((rhs & !BIT_SEVEN) as i16) - (BIT_SEVEN as i16)
+                };
+                str.push_str(&format!("{new_value}"));
+            }
+            if *op.instruction() == Instruction::DEX {
+                str.push_str(&format!(" x = {}", self.register_x));
+            }
+            if *op.instruction() == Instruction::DEY {
+                str.push_str(&format!(" y = {}", self.register_y));
+            }
+            str
+        };
+
+        // Print address and instruction information
+        let test_number = memory.get_byte(0x200);
+        if test_number >= 10 {
+            println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
+            //println!("a = 0b{:b}", self.accumulator);
+            //self.print_stack(memory);
+            //println!("{:#?}", self.status);
+        }
+        //println!("Test = {}", memory.get_byte(0x200));
+        // Print other stuff
+        //println!("x={}, test={}, sp={}"
+        //    self.register_x,
+        //    memory.get_byte(0x01),
+        //    self.stack_pointer
+        //);
+    }
+
     pub fn tick(&mut self, memory: &mut dyn AddressSpaceTrait) -> bool {
         if self.clock_tick == 0 {
             let initial_pc = self.program_counter;
             let opcode = OpCode::get(memory.get_byte(self.program_counter));
-            println!(
-                "0x{:X} : {}, x={}",
-                self.program_counter,
-                opcode.name(),
-                self.register_x
-            );
-            if self.program_counter == 0x04e5 {
-                println!("Cpu : {:#?}", self);
-            }
-            //println!("PC = 0x{:X}", self.program_counter);
-            //println!("Running {opcode:#?}");
+            let program_counter = self.program_counter;
 
             self.program_counter += 1;
             self.clock_tick = self.process_opcode(opcode, memory);
+            self.debug_print(memory, opcode, program_counter);
 
             let final_pc = self.program_counter;
             let infinite_loop = initial_pc == final_pc;
@@ -75,12 +128,14 @@ impl Cpu {
                 if infinite_loop {
                     println!("Hit infinite loop!");
                     println!("Cpu : {:#?}", self);
+                    self.print_stack(memory);
                 }
                 if halt {
                     println!("Halting.");
                 }
                 return false;
             }
+            self.clear_tmp_variables();
         }
         self.clock_tick -= 1;
         true
@@ -94,6 +149,12 @@ impl Cpu {
         let program_counter = concat_u8s_to_u16(low, high);
         self.program_counter = program_counter;
     }
+    fn clear_tmp_variables(&mut self) {
+        self.fetched_data = None;
+        self.addr_abs = None;
+        self.addr_rel = None;
+        self.opcode = None;
+    }
     fn fetched_data(&self) -> u8 {
         self.fetched_data.expect("fetched_data wasn't set")
     }
@@ -103,12 +164,6 @@ impl Cpu {
     fn addr_rel_add(&mut self) {
         let addr_rel = self.addr_rel.expect("addr_rel wasn't set");
         let rhs = addr_rel;
-        if rhs == 64 {
-            println!("CPU1 == {:#?}", self);
-        }
-        if self.program_counter == 0x4E5 {
-            println!("CPU2 == {:#?}", self);
-        }
         self.program_counter = if rhs & BIT_SEVEN == 0 {
             // Positive
             self.program_counter + (rhs as u16)
@@ -121,21 +176,17 @@ impl Cpu {
         self.opcode.expect("opcode wasn't set")
     }
 
-    fn process_opcode(&mut self, op: &OpCode, ram: &mut dyn AddressSpaceTrait) -> u8 {
+    fn process_opcode(&mut self, op: &OpCode, memory: &mut dyn AddressSpaceTrait) -> u8 {
         // TODO Load data
         let mut clock_cycles_to_wait = op.cycles();
-        if self.process_access_mode(ram, op.mode()) {
+        if self.process_access_mode(memory, op.mode()) {
             clock_cycles_to_wait += 1;
         }
-        op.instruction_fn(self, ram);
+        op.instruction_fn(self, memory);
         if op.instruction().is_branch() {
             clock_cycles_to_wait += 1;
         }
         // May want to remove these later. Good for debugging, but not strictly required.
-        self.fetched_data = None;
-        self.addr_abs = None;
-        self.addr_rel = None;
-        self.opcode = None;
         clock_cycles_to_wait
     }
 
@@ -268,6 +319,9 @@ mod test {
     impl Cpu {
         pub fn program_counter(&self) -> u16 {
             self.program_counter
+        }
+        pub fn stack_pointer(&self) -> u8 {
+            self.stack_pointer
         }
         pub fn set_program_counter(&mut self, val: u16) {
             self.program_counter = val;

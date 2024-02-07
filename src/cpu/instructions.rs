@@ -30,10 +30,10 @@ fn cmp_val(cpu: &mut Cpu, val: u8) {
     } else {
         cpu.status.unset_z();
     }
-    if val.wrapping_sub(cpu.fetched_data()) & BIT_SEVEN != 1 {
-        cpu.status.set_n();
-    } else {
+    if val.wrapping_sub(cpu.fetched_data()) & BIT_SEVEN == 0 {
         cpu.status.unset_n();
+    } else {
+        cpu.status.set_n();
     }
 }
 #[inline]
@@ -67,16 +67,17 @@ fn check_overflow_ant_set_c(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn write_to_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait, val: u8) {
-    let addr = STACK_START
-        .checked_sub(cpu.stack_pointer as u16)
-        .expect("STACK UNDERFLOW");
+    let addr = STACK_BEGIN + cpu.stack_pointer as u16;
+    if addr < 0x100 {
+        panic!("Stack underflow!");
+    }
     cpu.stack_pointer -= 1;
     io.set_byte(addr, val);
 }
 #[inline]
 fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
     cpu.stack_pointer += 1;
-    let addr = STACK_START - cpu.stack_pointer as u16;
+    let addr = STACK_BEGIN + cpu.stack_pointer as u16;
     let val = io.get_byte(addr);
     val
 }
@@ -166,7 +167,7 @@ pub fn bne(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     }
 }
 pub fn bpl(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    if !cpu.status.get_z() {
+    if !cpu.status.get_n() {
         cpu.addr_rel_add();
     }
 }
@@ -221,8 +222,10 @@ pub fn dey(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     check_z_and_n(cpu, cpu.register_y);
 }
 pub fn eor(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    let before = cpu.accumulator;
     cpu.accumulator ^= cpu.fetched_data();
     check_z_and_n(cpu, cpu.accumulator);
+    let after = cpu.accumulator;
 }
 pub fn inc(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let result = cpu.fetched_data().wrapping_add(1);
@@ -295,6 +298,10 @@ pub fn pha(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     write_to_stack(cpu, io, cpu.accumulator);
 }
 pub fn php(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
+    // This break command is not documented here, but it is expected:
+    // http://www.6502.org/users/obelisk/6502/reference.html#PHP
+    cpu.status.set_b();
+    cpu.status.set_u();
     write_to_stack(cpu, io, cpu.status.register);
 }
 pub fn pla(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
@@ -302,8 +309,9 @@ pub fn pla(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     cpu.accumulator = val;
     check_z_and_n(cpu, cpu.accumulator);
 }
-pub fn plp(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    todo!()
+pub fn plp(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
+    cpu.status.register = read_from_stack(cpu, io);
+    cpu.status.set_u();
 }
 pub fn rla(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
@@ -363,6 +371,7 @@ pub fn rra(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn rti(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     cpu.status.register = read_from_stack(cpu, io);
+    cpu.status.set_u();
     let low = read_from_stack(cpu, io);
     let high = read_from_stack(cpu, io);
     cpu.program_counter = concat_u8s_to_u16(low, high);
@@ -512,6 +521,11 @@ mod test {
         assert!(!cpu.status.get_n());
 
         let val = 0xFF;
+        check_z_and_n(&mut cpu, val);
+        assert!(!cpu.status.get_z());
+        assert!(cpu.status.get_n());
+
+        let val = 0b10000000;
         check_z_and_n(&mut cpu, val);
         assert!(!cpu.status.get_z());
         assert!(cpu.status.get_n());

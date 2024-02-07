@@ -31,7 +31,8 @@ pub mod consts {
     // CPU Values
     pub const DEFAULT_PROGRAM_COUNTER: u16 = 0;
     pub const DEFAULT_STACK_POINTER: u8 = 0xFF;
-    pub const STACK_START: u16 = 0x0100;
+    pub const STACK_BEGIN: u16 = 0x0100;
+    pub const STACK_END: u16 = 0x01FF;
     pub const RESET_VECTOR_ADDRESS: u16 = 0xFFFC;
     pub const INTERRUPT_REQUEST_ADDRESS: u16 = 0xFFFE;
     pub const INTERRUPT_NOMASK_ADDRESS: u16 = 0xFFFA;
@@ -228,6 +229,31 @@ mod test {
     // Halt
     const KIL: u8 = 0x02;
 
+    #[test]
+    fn test_6502() {
+        let file = "/home/spencer/dev/rust/6502_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
+        let mut nes = Nes::new_test();
+        for (ii, byte) in std::fs::read(file).unwrap().into_iter().enumerate() {
+            nes.memory.set_byte(ii as u16, byte);
+        }
+
+        nes.cpu.set_program_counter(0x400);
+        let max_tick = 100000;
+        let mut tick = 0;
+        loop {
+            if tick > max_tick {
+                panic!("MAX TICKS HIT");
+            }
+            if !nes.tick() {
+                break;
+            }
+            tick += 1;
+        }
+        let test = nes.memory.get_byte(0x200);
+        println!("Test = {test}");
+        assert!(test >= 0x2b);
+    }
+
     fn init_nes_with_program(program: &[u8]) -> Nes {
         let mut program = program.to_vec();
         // Halt program after done
@@ -293,7 +319,6 @@ mod test {
             ticks += 1;
         }
 
-        println!("Number of ticks = {ticks}");
         assert_eq!(nes.cpu.register_x(), 3);
     }
 
@@ -398,30 +423,6 @@ mod test {
         assert_eq!(nes.cpu.register_y(), yyy);
     }
 
-    #[test]
-    fn test_6502() {
-        let file = "/home/spencer/dev/rust/6502_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
-        let mut nes = Nes::new_test();
-        for (ii, byte) in std::fs::read(file).unwrap().into_iter().enumerate() {
-            nes.memory.set_byte(ii as u16, byte);
-        }
-
-        nes.cpu.set_program_counter(0x400);
-        let max_tick = 100000;
-        let mut tick = 0;
-        loop {
-            if tick > max_tick {
-                panic!();
-            }
-            if !nes.tick() {
-                break;
-            }
-            tick += 1;
-        }
-        println!("{:?}", nes.cpu);
-        println!("Ticked {tick} times");
-        panic!()
-    }
     //#[test]
     fn test_roms() {
         let mut nes = Nes::new();
