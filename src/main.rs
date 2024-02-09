@@ -207,6 +207,15 @@ impl AddressSpaceTrait for NesAddressSpace {
 
 #[cfg(test)]
 mod test {
+    // Test rom repos
+    // https://github.com/Klaus2m5/6502_65C02_functional_tests
+    // https://github.com/christopherpow/nes-test-roms
+    //
+    // Helper websites
+    //
+    // List of all instructions:
+    // http://www.6502.org/users/obelisk/6502/reference.html#PHP
+
     use crate::nes_file::NesFile;
 
     use super::*;
