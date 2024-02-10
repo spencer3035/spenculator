@@ -240,7 +240,7 @@ mod test {
 
     #[test]
     fn test_6502() {
-        let file = "/home/spencer/dev/rust/6502_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
+        let file = "./rom_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
         let mut nes = Nes::new_test();
         for (ii, byte) in std::fs::read(file).unwrap().into_iter().enumerate() {
             nes.memory.set_byte(ii as u16, byte);
@@ -435,7 +435,7 @@ mod test {
     //#[test]
     fn test_roms() {
         let mut nes = Nes::new();
-        let basename = "/home/spencer/dev/rust/6502_tests/nes-test-roms/";
+        let basename = "./rom_tests/nes-test-roms/";
         // pha plp php pla
         // x48 x28 x08 x68
         let files = [

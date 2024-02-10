@@ -1,0 +1,6 @@
+[submodule "rom_tests/6502_65C02_functional_tests"]
+	path = rom_tests/6502_65C02_functional_tests
+	url = https://github.com/Klaus2m5/6502_65C02_functional_tests
+[submodule "rom_tests/nes-test-roms"]
+	path = rom_tests/nes-test-roms
+	url = https://github.com/christopherpow/nes-test-roms
