@@ -247,7 +247,7 @@ pub fn jmp(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     cpu.program_counter = cpu.addr_abs();
 }
 pub fn jsr(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
-    let (low, high) = split_u16_to_u8s(cpu.program_counter);
+    let (low, high) = split_u16_to_u8s(cpu.program_counter - 1);
     cpu.program_counter = cpu.addr_abs();
     write_to_stack(cpu, io, high);
     write_to_stack(cpu, io, low);
@@ -377,6 +377,7 @@ pub fn rti(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     cpu.program_counter = concat_u8s_to_u16(low, high);
 }
 pub fn rts(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    // Get subroutine address from stack and set program counter to it
     todo!()
 }
 pub fn sax(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
