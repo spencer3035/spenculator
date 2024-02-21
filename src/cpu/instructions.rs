@@ -376,9 +376,11 @@ pub fn rti(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let high = read_from_stack(cpu, io);
     cpu.program_counter = concat_u8s_to_u16(low, high);
 }
-pub fn rts(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+pub fn rts(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     // Get subroutine address from stack and set program counter to it
-    todo!()
+    let low = read_from_stack(cpu, io);
+    let high = read_from_stack(cpu, io);
+    cpu.program_counter = concat_u8s_to_u16(low, high) + 1;
 }
 pub fn sax(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()

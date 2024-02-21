@@ -52,9 +52,13 @@ impl Cpu {
     pub fn print_stack(&self, memory: &dyn AddressSpaceTrait) {
         let mut counter = self.stack_pointer as u16;
         let mut str = String::new();
+        let mut str_hex = String::new();
+        let mut str_bin = String::new();
         while counter < 0xFF {
             let val = memory.get_byte(STACK_BEGIN + counter + 1);
             str.push_str(&format!("{val} "));
+            str_hex.push_str(&format!("0x{val:0>2X} "));
+            str_bin.push_str(&format!("0b{val:0>8b} "));
             if counter == 0xFF {
                 break;
             }
@@ -62,6 +66,8 @@ impl Cpu {
         }
         if !str.is_empty() {
             println!("STACK = {str}");
+            println!("STACK = {str_hex}");
+            println!("STACK = {str_bin}");
         }
     }
 
@@ -96,7 +102,7 @@ impl Cpu {
 
         // Print address and instruction information
         let test_number = memory.get_byte(0x200);
-        if test_number >= 10 {
+        if test_number >= 11 {
             println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
             //println!("a = 0b{:b}", self.accumulator);
             //self.print_stack(memory);
