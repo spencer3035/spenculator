@@ -222,10 +222,8 @@ pub fn dey(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     check_z_and_n(cpu, cpu.register_y);
 }
 pub fn eor(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    let before = cpu.accumulator;
     cpu.accumulator ^= cpu.fetched_data();
     check_z_and_n(cpu, cpu.accumulator);
-    let after = cpu.accumulator;
 }
 pub fn inc(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let result = cpu.fetched_data().wrapping_add(1);
