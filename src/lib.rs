@@ -247,7 +247,7 @@ mod test {
         }
 
         nes.cpu.set_program_counter(0x400);
-        let max_tick = 100000;
+        let max_tick = 200000;
         let mut tick = 0;
         loop {
             if tick > max_tick {

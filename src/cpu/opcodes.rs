@@ -82,7 +82,7 @@ pub enum AddressingMode {
     IMM, // Immediate (next address)
     IND, // Indirect Addressing. Like absolute addressing, but with pointers.
     IZX, // Zero page indexing with X offset
-    IZY, // Ralative indexing on Y
+    IZY, // Relative indexing on Y
     REL, // Relative addressing to PC
     XXX, // No addressing defined
     ZP0, // Zero page indexing

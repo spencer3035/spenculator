@@ -56,25 +56,17 @@ fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
     }
 }
 #[inline]
-fn check_overflow_ant_set_c(cpu: &mut Cpu, val: u8) {
-    if val & BIT_SEVEN == 0 {
-        cpu.status.set_n();
-    } else {
-        cpu.status.unset_n();
-    }
-}
-#[inline]
 fn write_to_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait, val: u8) {
     let addr = STACK_BEGIN + cpu.stack_pointer as u16;
     if addr < 0x100 {
         panic!("Stack underflow!");
     }
-    cpu.stack_pointer -= 1;
+    cpu.stack_pointer = cpu.stack_pointer.wrapping_sub(1);
     io.set_byte(addr, val);
 }
 #[inline]
 fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
-    cpu.stack_pointer += 1;
+    cpu.stack_pointer = cpu.stack_pointer.wrapping_add(1);
     let addr = STACK_BEGIN + cpu.stack_pointer as u16;
     let val = io.get_byte(addr);
     val
@@ -114,11 +106,24 @@ pub fn and(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 pub fn arr(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
 }
-pub fn asl(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    let data = cpu.fetched_data();
-    check_overflow_ant_set_c(cpu, cpu.accumulator);
-    cpu.accumulator &= data;
-    check_z_and_n(cpu, cpu.accumulator);
+pub fn asl(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
+    // Flags don't work for acc = 0
+    let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
+        if val & BIT_SEVEN != 0 {
+            cpu.status.set_c();
+        }
+        let val = val << 1;
+        check_z_and_n(cpu, val);
+        val
+    };
+
+    if let Some(data) = cpu.fetched_data {
+        let val = shift_value(cpu, data);
+        io.set_byte(cpu.addr_abs(), val);
+    } else {
+        let val = shift_value(cpu, cpu.accumulator);
+        cpu.accumulator = val;
+    }
 }
 pub fn axs(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
@@ -141,8 +146,8 @@ pub fn beq(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn bit(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     let data = cpu.fetched_data();
-    cpu.accumulator = cpu.accumulator & data;
-    check_zero_and_set_z(cpu, cpu.accumulator);
+    let result = cpu.accumulator & data;
+    check_zero_and_set_z(cpu, result);
     if data & BIT_SIX == 0 {
         cpu.status.unset_v();
     } else {
@@ -208,12 +213,12 @@ pub fn dcp(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
 }
 pub fn dec(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
-    let result = cpu.fetched_data() - 1;
+    let result = cpu.fetched_data().wrapping_sub(1);
     check_z_and_n(cpu, result);
     io.set_byte(cpu.addr_abs(), result);
 }
 pub fn dex(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.register_x -= 1;
+    cpu.register_x = cpu.register_x.wrapping_sub(1);
     check_z_and_n(cpu, cpu.register_x);
 }
 pub fn dey(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -230,11 +235,11 @@ pub fn inc(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     io.set_byte(cpu.addr_abs(), result);
 }
 pub fn inx(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.register_x += 1;
+    cpu.register_x = cpu.register_x.wrapping_add(1);
     check_z_and_n(cpu, cpu.register_x);
 }
 pub fn iny(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.register_y += 1;
+    cpu.register_y = cpu.register_y.wrapping_add(1);
     check_z_and_n(cpu, cpu.register_y);
 }
 pub fn isc(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -484,8 +489,8 @@ fn inturrupt_and_set_program_counter(
     pc_address: u16,
 ) {
     // Write PC and status to stack
-    let high = (cpu.program_counter >> 8) as u8;
-    let low = (cpu.program_counter & 0x00FF) as u8;
+    let return_pc = cpu.program_counter + 1;
+    let (low, high) = split_u16_to_u8s(cpu.program_counter + 1);
     write_to_stack(cpu, io, high);
     write_to_stack(cpu, io, low);
     write_to_stack(cpu, io, cpu.status.register);

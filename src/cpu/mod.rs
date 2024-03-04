@@ -102,7 +102,7 @@ impl Cpu {
 
         // Print address and instruction information
         let test_number = memory.get_byte(0x200);
-        if test_number >= 11 {
+        if test_number >= 29 {
             println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
             //println!("a = 0b{:b}", self.accumulator);
             //self.print_stack(memory);
@@ -120,7 +120,8 @@ impl Cpu {
     pub fn tick(&mut self, memory: &mut dyn AddressSpaceTrait) -> bool {
         if self.clock_tick == 0 {
             let initial_pc = self.program_counter;
-            let opcode = OpCode::get(memory.get_byte(self.program_counter));
+            let opcode_num = memory.get_byte(self.program_counter);
+            let opcode = OpCode::get(opcode_num);
             let program_counter = self.program_counter;
 
             self.program_counter += 1;
