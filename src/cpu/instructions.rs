@@ -1,6 +1,4 @@
-use super::opcodes::Instruction;
 use super::*;
-use crate::AddressSpaceTrait;
 
 macro_rules! match_instruction {
         ($($ins:ident),*) => {
@@ -172,6 +170,7 @@ pub fn bpl(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     }
 }
 pub fn brk(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
+    cpu.status.set_b();
     inturrupt_and_set_program_counter(cpu, io, INTERRUPT_REQUEST_ADDRESS);
 }
 pub fn bvc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -451,7 +450,7 @@ pub fn tay(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     check_z_and_n(cpu, cpu.register_y);
 }
 pub fn tsx(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.register_x = cpu.stack_pointer as u8;
+    cpu.register_x = cpu.stack_pointer;
     check_z_and_n(cpu, cpu.register_x);
 }
 pub fn txa(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -484,14 +483,19 @@ fn inturrupt_and_set_program_counter(
     io: &mut dyn AddressSpaceTrait,
     pc_address: u16,
 ) {
+    // Write PC and status to stack
     let high = (cpu.program_counter >> 8) as u8;
     let low = (cpu.program_counter & 0x00FF) as u8;
     write_to_stack(cpu, io, high);
     write_to_stack(cpu, io, low);
+    write_to_stack(cpu, io, cpu.status.register);
+
+    // Set IRQ flags
     cpu.status.unset_b();
     cpu.status.set_u();
     cpu.status.set_i();
-    write_to_stack(cpu, io, cpu.status.register);
+
+    // Get new PC address and set.
     let low = io.get_byte(pc_address);
     let high = io.get_byte(pc_address + 1);
     cpu.program_counter = concat_u8s_to_u16(low, high);
