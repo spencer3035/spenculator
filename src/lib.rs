@@ -8,15 +8,44 @@ mod cpu;
 mod nes_file;
 
 pub mod utils {
+    use crate::consts::*;
+
     #[inline]
     pub fn concat_u8s_to_u16(low: u8, high: u8) -> u16 {
         ((high as u16) << 8) | (low as u16)
     }
+
     #[inline]
     pub fn split_u16_to_u8s(val: u16) -> (u8, u8) {
         let high = (val >> 8) as u8;
         let low = (val & 0x00FF) as u8;
         (low, high)
+    }
+
+    #[inline]
+    pub fn is_positive(val: u8) -> bool {
+        val & BIT_SEVEN == 0
+    }
+
+    #[inline]
+    pub fn is_negative(val: u8) -> bool {
+        val & BIT_SEVEN != 0
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn test_positive_negative() {
+            assert!(is_positive(0));
+            assert!(is_positive(1));
+            assert!(is_positive(2));
+
+            assert!(is_negative(0xFF - 0));
+            assert!(is_negative(0xFF - 1));
+            assert!(is_negative(0xFF - 2));
+        }
     }
 }
 pub mod consts {
@@ -247,7 +276,7 @@ mod test {
         }
 
         nes.cpu.set_program_counter(0x400);
-        let max_tick = 200000;
+        let max_tick = 400000;
         let mut tick = 0;
         loop {
             if tick > max_tick {

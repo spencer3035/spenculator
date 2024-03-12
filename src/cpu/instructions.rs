@@ -49,7 +49,7 @@ fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
-    if val & BIT_SEVEN == 0 {
+    if is_positive(val) {
         cpu.status.unset_n();
     } else {
         cpu.status.set_n();
@@ -74,20 +74,26 @@ fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
 
 // Begin actual instruction implementations
 pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    // Bad flags for ACC = 0b01111111, MEM = 0
+    // FLAGS = 0b11110001 = C BUVN
     let data = cpu.fetched_data();
-    let val = cpu.accumulator.checked_add(data);
-    match val {
-        Some(v) => {
-            cpu.accumulator = v;
-        }
-        None => {
-            cpu.accumulator += data;
-            cpu.status.set_c();
-            // Calculate overflow
-        }
-    }
 
-    check_zero_and_set_z(cpu, cpu.accumulator);
+    let started_positive = is_positive(cpu.accumulator);
+    cpu.accumulator = cpu.accumulator.wrapping_add(data);
+    if cpu.status.get_c() {
+        cpu.accumulator = cpu.accumulator.wrapping_add(1);
+    }
+    let ended_negative = is_negative(cpu.accumulator);
+
+    let is_overflow = started_positive && ended_negative;
+    if is_overflow {
+        cpu.status.set_c();
+        cpu.status.set_v();
+    } else {
+        cpu.status.unset_c();
+        cpu.status.unset_v();
+    }
+    check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn ahx(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
@@ -111,6 +117,8 @@ pub fn asl(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
         if val & BIT_SEVEN != 0 {
             cpu.status.set_c();
+        } else {
+            cpu.status.unset_c();
         }
         let val = val << 1;
         check_z_and_n(cpu, val);
@@ -277,6 +285,8 @@ pub fn lsr(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
         if val & BIT_ZERO != 0 {
             cpu.status.set_c();
+        } else {
+            cpu.status.unset_c();
         }
         let val = val >> 1;
         check_z_and_n(cpu, val);
@@ -320,7 +330,8 @@ pub fn rla(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn rol(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
-        let is_carry = if val & BIT_SEVEN != 0 {
+        let is_carry = cpu.status.get_c();
+        if val & BIT_SEVEN != 0 {
             cpu.status.set_c();
             true
         } else {
@@ -345,7 +356,8 @@ pub fn rol(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
 }
 pub fn ror(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
-        let is_carry = if val & BIT_ZERO != 0 {
+        let is_carry = cpu.status.get_c();
+        if val & BIT_ZERO != 0 {
             cpu.status.set_c();
             true
         } else {
@@ -389,27 +401,21 @@ pub fn sax(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn sbc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     let data = cpu.fetched_data();
-    let started_negative = cpu.accumulator & BIT_SEVEN != 0;
-    if cpu.status.get_c() {
-        if let Some(val) = cpu.accumulator.checked_sub(data) {
-            cpu.accumulator = val;
-        } else {
-            cpu.accumulator -= data;
-            // Underflow
-            cpu.status.unset_c();
-        }
-    } else {
-        if let Some(val) = cpu.accumulator.checked_sub(data + 1) {
-            cpu.accumulator = val;
-        } else {
-            cpu.accumulator -= data + 1;
-            // Underflow
-            cpu.status.unset_c();
-        }
+    let started_negative = is_negative(cpu.accumulator);
+
+    cpu.accumulator = cpu.accumulator.wrapping_sub(data);
+    if !cpu.status.get_c() {
+        cpu.accumulator = cpu.accumulator.wrapping_sub(1);
     }
-    let ended_positive = cpu.accumulator & BIT_SEVEN == 0;
-    if started_negative && ended_positive {
+
+    let ended_positive = is_positive(cpu.accumulator);
+    let is_overflow = started_negative && ended_positive;
+    if is_overflow {
         cpu.status.set_v();
+        cpu.status.set_c();
+    } else {
+        cpu.status.unset_v();
+        cpu.status.unset_c();
     }
     check_z_and_n(cpu, cpu.accumulator);
 }
@@ -490,7 +496,7 @@ fn inturrupt_and_set_program_counter(
 ) {
     // Write PC and status to stack
     let return_pc = cpu.program_counter + 1;
-    let (low, high) = split_u16_to_u8s(cpu.program_counter + 1);
+    let (low, high) = split_u16_to_u8s(return_pc);
     write_to_stack(cpu, io, high);
     write_to_stack(cpu, io, low);
     write_to_stack(cpu, io, cpu.status.register);
@@ -514,27 +520,32 @@ mod test {
     fn test_instructions() {
         let mut cpu = Cpu::new();
 
+        println!("Checking 0");
         cpu.fetched_data = Some(1);
         let val = 0;
         cmp_val(&mut cpu, val);
         cpu.fetched_data = None;
         assert!(cpu.status.get_n());
 
+        println!("Checking 1");
         let val = 1;
         check_z_and_n(&mut cpu, val);
         assert!(!cpu.status.get_z());
         assert!(!cpu.status.get_n());
 
+        println!("Checking 0");
         let val = 0;
         check_z_and_n(&mut cpu, val);
         assert!(cpu.status.get_z());
         assert!(!cpu.status.get_n());
 
+        println!("Checking 0xFF");
         let val = 0xFF;
         check_z_and_n(&mut cpu, val);
         assert!(!cpu.status.get_z());
         assert!(cpu.status.get_n());
 
+        println!("Checking BIT_SEVEN");
         let val = 0b10000000;
         check_z_and_n(&mut cpu, val);
         assert!(!cpu.status.get_z());

@@ -91,18 +91,23 @@ impl Cpu {
                 };
                 str.push_str(&format!("{new_value}"));
             }
-            if *op.instruction() == Instruction::DEX {
-                str.push_str(&format!(" x = {}", self.register_x));
+            // Print accumulator
+            if *op.instruction() == Instruction::PLA || *op.instruction() == Instruction::PHA {
+                str.push_str(&format!(
+                    "   A = ({0:0>3} / 0x{0:0>2X} / 0b{0:0>8b})",
+                    self.accumulator
+                ));
             }
-            if *op.instruction() == Instruction::DEY {
-                str.push_str(&format!(" y = {}", self.register_y));
+            // Print status
+            if *op.instruction() == Instruction::PLP || *op.instruction() == Instruction::PHP {
+                str.push_str(&format!("{:?}", self.status.register));
             }
             str
         };
 
         // Print address and instruction information
         let test_number = memory.get_byte(0x200);
-        if test_number >= 29 {
+        if test_number >= 41 {
             println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
             //println!("a = 0b{:b}", self.accumulator);
             //self.print_stack(memory);
@@ -221,19 +226,54 @@ struct CpuStatus {
 use std::fmt;
 impl fmt::Debug for CpuStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CpuStatus")
-            .field("c", &self.get_c())
-            .field("z", &self.get_z())
-            .field("i", &self.get_i())
-            .field("d", &self.get_d())
-            .field("b", &self.get_b())
-            .field("u", &self.get_u())
-            .field("v", &self.get_v())
-            .field("n", &self.get_n())
-            .finish()
+        let mut str = String::new();
+
+        if self.get_c() {
+            str.push('C');
+        } else {
+            str.push('c');
+        }
+        if self.get_z() {
+            str.push('Z');
+        } else {
+            str.push('z');
+        }
+        if self.get_i() {
+            str.push('I');
+        } else {
+            str.push('i');
+        }
+        if self.get_d() {
+            str.push('D');
+        } else {
+            str.push('d');
+        }
+        if self.get_b() {
+            str.push('B');
+        } else {
+            str.push('b');
+        }
+        if self.get_u() {
+            str.push('U');
+        } else {
+            str.push('u');
+        }
+        if self.get_v() {
+            str.push('V');
+        } else {
+            str.push('v');
+        }
+        if self.get_n() {
+            str.push('N');
+        } else {
+            str.push('n');
+        }
+
+        f.debug_struct("CpuStatus").field("status", &str).finish()
     }
 }
 
+// TODO: Make "set" take bool instead of set/unset
 macro_rules! set_unset_get_def {
     ($($flag:ident),*) => {
         ::paste::paste! {
