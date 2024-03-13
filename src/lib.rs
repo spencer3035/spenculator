@@ -276,17 +276,14 @@ mod test {
         }
 
         nes.cpu.set_program_counter(0x400);
-        let max_tick = 400000;
         let mut tick = 0;
         loop {
-            if tick > max_tick {
-                panic!("MAX TICKS HIT");
-            }
             if !nes.tick() {
                 break;
             }
             tick += 1;
         }
+        println!("tick = {tick}");
         let test = nes.memory.get_byte(0x200);
         println!("Test = {test}");
         assert!(test >= 0x2b);

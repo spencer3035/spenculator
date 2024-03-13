@@ -100,14 +100,15 @@ impl Cpu {
             }
             // Print status
             if *op.instruction() == Instruction::PLP || *op.instruction() == Instruction::PHP {
-                str.push_str(&format!("{:?}", self.status.register));
+                str.push_str(&format!("0b{:0>8b}  -> ", self.status.register));
+                str.push_str(&format!("{:?}", self.status));
             }
             str
         };
 
         // Print address and instruction information
         let test_number = memory.get_byte(0x200);
-        if test_number >= 41 {
+        if test_number >= 42 {
             println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
             //println!("a = 0b{:b}", self.accumulator);
             //self.print_stack(memory);

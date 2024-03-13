@@ -49,10 +49,10 @@ fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
-    if is_positive(val) {
-        cpu.status.unset_n();
-    } else {
+    if is_negative(val) {
         cpu.status.set_n();
+    } else {
+        cpu.status.unset_n();
     }
 }
 #[inline]
@@ -74,24 +74,31 @@ fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
 
 // Begin actual instruction implementations
 pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    // Bad flags for ACC = 0b01111111, MEM = 0
-    // FLAGS = 0b11110001 = C BUVN
     let data = cpu.fetched_data();
 
-    let started_positive = is_positive(cpu.accumulator);
-    cpu.accumulator = cpu.accumulator.wrapping_add(data);
+    let mut is_carry;
+    let should_be_positive = is_positive(cpu.accumulator) && is_positive(data);
+    let should_be_negative = is_negative(cpu.accumulator) && is_negative(data);
+    (cpu.accumulator, is_carry) = cpu.accumulator.overflowing_add(data);
     if cpu.status.get_c() {
-        cpu.accumulator = cpu.accumulator.wrapping_add(1);
+        let tmp_carry;
+        (cpu.accumulator, tmp_carry) = cpu.accumulator.overflowing_add(1);
+        is_carry |= tmp_carry;
     }
     let ended_negative = is_negative(cpu.accumulator);
+    let ended_positive = is_positive(cpu.accumulator);
 
-    let is_overflow = started_positive && ended_negative;
+    let is_overflow =
+        (should_be_positive && ended_negative) || (should_be_negative && ended_positive);
     if is_overflow {
-        cpu.status.set_c();
         cpu.status.set_v();
     } else {
-        cpu.status.unset_c();
         cpu.status.unset_v();
+    }
+    if is_carry {
+        cpu.status.set_c();
+    } else {
+        cpu.status.unset_c();
     }
     check_z_and_n(cpu, cpu.accumulator);
 }
@@ -400,24 +407,9 @@ pub fn sax(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
 }
 pub fn sbc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    let data = cpu.fetched_data();
-    let started_negative = is_negative(cpu.accumulator);
-
-    cpu.accumulator = cpu.accumulator.wrapping_sub(data);
-    if !cpu.status.get_c() {
-        cpu.accumulator = cpu.accumulator.wrapping_sub(1);
-    }
-
-    let ended_positive = is_positive(cpu.accumulator);
-    let is_overflow = started_negative && ended_positive;
-    if is_overflow {
-        cpu.status.set_v();
-        cpu.status.set_c();
-    } else {
-        cpu.status.unset_v();
-        cpu.status.unset_c();
-    }
-    check_z_and_n(cpu, cpu.accumulator);
+    // Trick to use adc. Invert all bits of fetched data to add a negative number
+    cpu.fetched_data = Some(cpu.fetched_data() ^ 0xFF);
+    adc(cpu, _io);
 }
 pub fn sec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     cpu.status.set_c();
@@ -550,6 +542,12 @@ mod test {
         check_z_and_n(&mut cpu, val);
         assert!(!cpu.status.get_z());
         assert!(cpu.status.get_n());
+
+        println!("Checking MAX POS");
+        let val = 0b01111111;
+        check_z_and_n(&mut cpu, val);
+        assert!(!cpu.status.get_z());
+        assert!(!cpu.status.get_n());
     }
 }
 
