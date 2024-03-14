@@ -18,21 +18,12 @@ macro_rules! match_instruction {
 // Utility functions to make code slightly cleaner
 #[inline]
 fn cmp_val(cpu: &mut Cpu, val: u8) {
-    if val >= cpu.fetched_data() {
-        cpu.status.set_c();
-    } else {
-        cpu.status.unset_c();
-    }
-    if val == cpu.fetched_data() {
-        cpu.status.set_z();
-    } else {
-        cpu.status.unset_z();
-    }
-    if val.wrapping_sub(cpu.fetched_data()) & BIT_SEVEN == 0 {
-        cpu.status.unset_n();
-    } else {
-        cpu.status.set_n();
-    }
+    let c_flag = val >= cpu.fetched_data();
+    cpu.status.set_c(c_flag);
+    let z_flag = val == cpu.fetched_data();
+    cpu.status.set_z(z_flag);
+    let n_flag = val.wrapping_sub(cpu.fetched_data()) & BIT_SEVEN != 0;
+    cpu.status.set_n(n_flag);
 }
 #[inline]
 fn check_z_and_n(cpu: &mut Cpu, val: u8) {
@@ -41,19 +32,13 @@ fn check_z_and_n(cpu: &mut Cpu, val: u8) {
 }
 #[inline]
 fn check_zero_and_set_z(cpu: &mut Cpu, val: u8) {
-    if val == 0 {
-        cpu.status.set_z();
-    } else {
-        cpu.status.unset_z();
-    }
+    let z_flag = val == 0;
+    cpu.status.set_z(z_flag);
 }
 #[inline]
 fn check_negative_and_set_n(cpu: &mut Cpu, val: u8) {
-    if is_negative(val) {
-        cpu.status.set_n();
-    } else {
-        cpu.status.unset_n();
-    }
+    let n_flag = is_negative(val);
+    cpu.status.set_n(n_flag);
 }
 #[inline]
 fn write_to_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait, val: u8) {
@@ -76,30 +61,21 @@ fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
 pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     let data = cpu.fetched_data();
 
-    let mut is_carry;
+    let mut c_flag;
     let should_be_positive = is_positive(cpu.accumulator) && is_positive(data);
     let should_be_negative = is_negative(cpu.accumulator) && is_negative(data);
-    (cpu.accumulator, is_carry) = cpu.accumulator.overflowing_add(data);
+    (cpu.accumulator, c_flag) = cpu.accumulator.overflowing_add(data);
     if cpu.status.get_c() {
         let tmp_carry;
         (cpu.accumulator, tmp_carry) = cpu.accumulator.overflowing_add(1);
-        is_carry |= tmp_carry;
+        c_flag |= tmp_carry;
     }
     let ended_negative = is_negative(cpu.accumulator);
     let ended_positive = is_positive(cpu.accumulator);
 
-    let is_overflow =
-        (should_be_positive && ended_negative) || (should_be_negative && ended_positive);
-    if is_overflow {
-        cpu.status.set_v();
-    } else {
-        cpu.status.unset_v();
-    }
-    if is_carry {
-        cpu.status.set_c();
-    } else {
-        cpu.status.unset_c();
-    }
+    let v_flag = (should_be_positive && ended_negative) || (should_be_negative && ended_positive);
+    cpu.status.set_v(v_flag);
+    cpu.status.set_c(c_flag);
     check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn ahx(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -122,11 +98,8 @@ pub fn arr(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 pub fn asl(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     // Flags don't work for acc = 0
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
-        if val & BIT_SEVEN != 0 {
-            cpu.status.set_c();
-        } else {
-            cpu.status.unset_c();
-        }
+        let c_flag = val & BIT_SEVEN != 0;
+        cpu.status.set_c(c_flag);
         let val = val << 1;
         check_z_and_n(cpu, val);
         val
@@ -163,16 +136,10 @@ pub fn bit(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     let data = cpu.fetched_data();
     let result = cpu.accumulator & data;
     check_zero_and_set_z(cpu, result);
-    if data & BIT_SIX == 0 {
-        cpu.status.unset_v();
-    } else {
-        cpu.status.set_v();
-    }
-    if data & BIT_SEVEN == 0 {
-        cpu.status.unset_n();
-    } else {
-        cpu.status.set_n();
-    }
+    let v_flag = data & BIT_SIX != 0;
+    cpu.status.set_v(v_flag);
+    let n_flag = data & BIT_SEVEN != 0;
+    cpu.status.set_n(n_flag);
 }
 pub fn bmi(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     if cpu.status.get_n() {
@@ -190,7 +157,7 @@ pub fn bpl(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     }
 }
 pub fn brk(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
-    cpu.status.set_b();
+    cpu.status.set_b(true);
     inturrupt_and_set_program_counter(cpu, io, INTERRUPT_REQUEST_ADDRESS);
 }
 pub fn bvc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -204,16 +171,16 @@ pub fn bvs(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     }
 }
 pub fn clc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.unset_c();
+    cpu.status.set_c(false);
 }
 pub fn cld(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.unset_d();
+    cpu.status.set_d(false);
 }
 pub fn cli(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.unset_i();
+    cpu.status.set_i(false);
 }
 pub fn clv(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.unset_v();
+    cpu.status.set_v(false);
 }
 pub fn cmp(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     cmp_val(cpu, cpu.accumulator);
@@ -290,11 +257,8 @@ pub fn ldy(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn lsr(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
-        if val & BIT_ZERO != 0 {
-            cpu.status.set_c();
-        } else {
-            cpu.status.unset_c();
-        }
+        let c_flag = val & BIT_ZERO != 0;
+        cpu.status.set_c(c_flag);
         let val = val >> 1;
         check_z_and_n(cpu, val);
         val
@@ -319,8 +283,8 @@ pub fn pha(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
 pub fn php(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     // This break command is not documented here, but it is expected:
     // http://www.6502.org/users/obelisk/6502/reference.html#PHP
-    cpu.status.set_b();
-    cpu.status.set_u();
+    cpu.status.set_b(true);
+    cpu.status.set_u(true);
     write_to_stack(cpu, io, cpu.status.register);
 }
 pub fn pla(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
@@ -330,7 +294,7 @@ pub fn pla(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
 }
 pub fn plp(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     cpu.status.register = read_from_stack(cpu, io);
-    cpu.status.set_u();
+    cpu.status.set_u(true);
 }
 pub fn rla(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
@@ -338,13 +302,8 @@ pub fn rla(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 pub fn rol(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
         let is_carry = cpu.status.get_c();
-        if val & BIT_SEVEN != 0 {
-            cpu.status.set_c();
-            true
-        } else {
-            cpu.status.unset_c();
-            false
-        };
+        let c_flag = val & BIT_SEVEN != 0;
+        cpu.status.set_c(c_flag);
         let mut val = val << 1;
         if is_carry {
             val = val | BIT_ZERO;
@@ -364,13 +323,8 @@ pub fn rol(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
 pub fn ror(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     let shift_value = |cpu: &mut Cpu, val: u8| -> u8 {
         let is_carry = cpu.status.get_c();
-        if val & BIT_ZERO != 0 {
-            cpu.status.set_c();
-            true
-        } else {
-            cpu.status.unset_c();
-            false
-        };
+        let c_flag = val & BIT_ZERO != 0;
+        cpu.status.set_c(c_flag);
         let mut val = val >> 1;
         if is_carry {
             val = val | BIT_SEVEN;
@@ -392,7 +346,7 @@ pub fn rra(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
 }
 pub fn rti(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) {
     cpu.status.register = read_from_stack(cpu, io);
-    cpu.status.set_u();
+    cpu.status.set_u(true);
     let low = read_from_stack(cpu, io);
     let high = read_from_stack(cpu, io);
     cpu.program_counter = concat_u8s_to_u16(low, high);
@@ -412,13 +366,13 @@ pub fn sbc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     adc(cpu, _io);
 }
 pub fn sec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.set_c();
+    cpu.status.set_c(true);
 }
 pub fn sed(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.set_d();
+    cpu.status.set_d(true);
 }
 pub fn sei(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    cpu.status.set_i();
+    cpu.status.set_i(true);
 }
 pub fn shx(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
@@ -494,9 +448,9 @@ fn inturrupt_and_set_program_counter(
     write_to_stack(cpu, io, cpu.status.register);
 
     // Set IRQ flags
-    cpu.status.unset_b();
-    cpu.status.set_u();
-    cpu.status.set_i();
+    cpu.status.set_b(false);
+    cpu.status.set_u(true);
+    cpu.status.set_i(true);
 
     // Get new PC address and set.
     let low = io.get_byte(pc_address);

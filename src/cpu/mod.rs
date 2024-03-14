@@ -275,18 +275,13 @@ impl fmt::Debug for CpuStatus {
 }
 
 // TODO: Make "set" take bool instead of set/unset
-macro_rules! set_unset_get_def {
+macro_rules! set_get_def {
     ($($flag:ident),*) => {
         ::paste::paste! {
             $(
             #[doc=concat!("Sets the ", stringify!($flag), " flag in the CPU status bitmask")]
-            fn [<set_ $flag:lower>](&mut self) {
-                self.set(&CpuStatusFlag::$flag);
-            }
-
-            #[doc=concat!("Unsets the ", stringify!($flag), " flag in the CPU status bitmask")]
-            fn [<unset_ $flag:lower>](&mut self) {
-                self.unset(&CpuStatusFlag::$flag);
+            fn [<set_ $flag:lower>](&mut self, value : bool) {
+                self.set(&CpuStatusFlag::$flag, value);
             }
 
             #[doc=concat!("Gets the ", stringify!($flag), " flag in the CPU status bitmask")]
@@ -299,20 +294,22 @@ macro_rules! set_unset_get_def {
 }
 
 impl CpuStatus {
-    set_unset_get_def!(C, Z, I, D, B, U, V, N);
+    set_get_def!(C, Z, I, D, B, U, V, N);
     fn new() -> Self {
         CpuStatus {
             register: 0b00100000,
         }
     }
-    fn set(&mut self, flag: &CpuStatusFlag) {
-        self.register |= flag.bit();
+    #[inline]
+    fn set(&mut self, flag: &CpuStatusFlag, value: bool) {
+        if value {
+            self.register |= flag.bit();
+        } else {
+            self.register &= !flag.bit();
+        }
     }
 
-    fn unset(&mut self, flag: &CpuStatusFlag) {
-        self.register &= !flag.bit();
-    }
-
+    #[inline]
     fn get(&self, flag: &CpuStatusFlag) -> bool {
         self.register & flag.bit() != 0
     }
@@ -423,7 +420,7 @@ mod test {
         assert_eq!(cpu_status.get(&CpuStatusFlag::U), true);
 
         // Set one flag to zero for consistency
-        cpu_status.unset(&CpuStatusFlag::U);
+        cpu_status.set(&CpuStatusFlag::U, false);
 
         // Assert everything starts out as not set.
         for flag in all_flags.iter() {
@@ -432,13 +429,13 @@ mod test {
 
         // Set all flags one at a time and check that they got set and nothing else.
         for flag in all_flags.iter() {
-            cpu_status.set(flag);
+            cpu_status.set(flag, true);
             assert_eq!(cpu_status.get(flag), true);
         }
 
         // Unset all flags on at a time and check they get unset
         for flag in all_flags.iter() {
-            cpu_status.unset(flag);
+            cpu_status.set(flag, false);
             assert_eq!(cpu_status.get(flag), false);
         }
 
@@ -449,7 +446,7 @@ mod test {
 
         // Set one flag at a time and assert all other ones are unset
         for flag_set in all_flags.iter() {
-            cpu_status.set(flag_set);
+            cpu_status.set(flag_set, true);
 
             for flag_unset in all_flags.iter() {
                 if flag_unset != flag_set {
@@ -458,7 +455,7 @@ mod test {
                     assert_eq!(cpu_status.get(flag_set), true);
                 }
             }
-            cpu_status.unset(flag_set);
+            cpu_status.set(flag_set, false);
             assert_eq!(cpu_status.get(flag_set), false);
         }
     }
