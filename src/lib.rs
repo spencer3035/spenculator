@@ -69,13 +69,6 @@ pub mod consts {
     // NES Address constants
 }
 
-// 2 KB ram
-const RAM_BYTES: usize = 2 * 1024;
-const CARTRIGE_ROM_BYTES: usize = 0xBFE0;
-const CARTRIGE_RAM_BYTES: usize = 0xFFFF;
-
-const PRG_ROM_START: usize = 0x4020;
-
 struct Nes {
     cpu: cpu::Cpu,
     memory: Box<dyn AddressSpaceTrait>,
@@ -108,8 +101,43 @@ impl Nes {
 }
 
 struct Cartridge {
-    rom: [u8; CARTRIGE_ROM_BYTES],
-    ram: [u8; CARTRIGE_RAM_BYTES],
+    chr: Vec<u8>,
+    prg: Vec<u8>,
+    ram: Vec<u8>,
+}
+
+impl Cartridge {
+    fn new() -> Self {
+        Cartridge {
+            chr: vec![0; 8 * KILOBYTE],
+            prg: vec![0; 32 * KILOBYTE],
+            ram: vec![0; CARTRIGE_RAM_BYTES as usize],
+        }
+    }
+
+    fn write_ram(&mut self, addr: u16, val: u8) {
+        let addr_map = (addr % CARTRIGE_RAM_BYTES) as usize;
+        self.ram[addr_map] = val;
+    }
+
+    fn read_ram(&self, addr: u16) -> u8 {
+        let addr_map = (addr as usize) % self.ram.len();
+        assert_eq!(addr as usize, addr_map, "TRIED TO READ OUT OF BOUNDS");
+        self.ram[addr_map]
+    }
+
+    fn read_rom(&self, addr: u16) -> u8 {
+        let addr_map = (addr as usize) % self.prg.len();
+        assert_eq!(addr as usize, addr_map, "TRIED TO READ OUT OF BOUNDS");
+        self.prg[addr_map]
+    }
+
+    fn load_chr(&mut self, chr: Vec<u8>) {
+        self.chr = chr;
+    }
+    fn load_prg(&mut self, prg: Vec<u8>) {
+        self.prg = prg;
+    }
 }
 
 trait AddressSpaceTrait: 'static {
@@ -124,15 +152,8 @@ trait AddressSpaceTrait: 'static {
     }
 }
 
-struct NesAddressSpace {
-    ram: [u8; RAM_BYTES],
-    cartridge: Cartridge,
-    // TODO: Mirror stuff from getters
-}
-
 struct TestAddressSpace {
     ram: [u8; 0x10000],
-    // TODO: Mirror stuff from getters
 }
 
 impl AddressSpaceTrait for TestAddressSpace {
@@ -150,6 +171,8 @@ impl TestAddressSpace {
     }
 }
 
+const CARTRIGE_ROM_BYTES: u16 = 0x8000 - 0x6000;
+const CARTRIGE_RAM_BYTES: u16 = 0xFFFF - 0x8000 + 1;
 const RAM_SIZE: u16 = 0x0800;
 const PPU_START: u16 = 0x2000;
 const APU_START: u16 = 0x4000;
@@ -158,21 +181,27 @@ const CARTRIDGE_RAM_START: u16 = 0x4020;
 const CARTRIDGE_ROM_START: u16 = 0x8000;
 const CARTRIDGE_SIZE: u16 = 0xBFE0;
 
+struct NesAddressSpace {
+    // CPU ram
+    ram: [u8; RAM_SIZE as usize],
+    cartridge: Cartridge,
+}
+
 impl NesAddressSpace {
     fn new() -> Self {
         Self {
-            ram: [0; RAM_BYTES],
-            cartridge: Cartridge {
-                rom: [0; CARTRIGE_ROM_BYTES],
-                ram: [0; CARTRIGE_RAM_BYTES],
-            },
+            ram: [0; RAM_SIZE as usize],
+            cartridge: Cartridge::new(),
         }
     }
 }
+
 impl AddressSpaceTrait for NesAddressSpace {
+    // TODO: Needs to be &mut self eventually. Reading can change state of the Cartridge
     fn get_byte(&self, address: u16) -> u8 {
         // https://www.nesdev.org/wiki/CPU_memory_map
         let val = if address < PPU_START {
+            // CPU RAM
             // Mirror addresses to [0x000..0x07FF] range.
             let mirror = (address % RAM_SIZE) as usize;
             let val = self.ram[mirror];
@@ -192,14 +221,14 @@ impl AddressSpaceTrait for NesAddressSpace {
             0x00
         } else if address < CARTRIDGE_ROM_START {
             // Cartridge RAM
-            self.cartridge.ram[address as usize]
+            self.cartridge.read_ram(address - CARTRIDGE_RAM_START)
         } else {
-            // Cartridge memory.
+            // Cartridge ROM
             // TODO: Implement mappers
             // Assumed mapper 0
             let address_shifted = address - CARTRIDGE_ROM_START;
-            let mirror = address_shifted % (0x8000);
-            self.cartridge.rom[mirror as usize]
+            let mirror = address_shifted % 0x8000;
+            self.cartridge.read_rom(mirror)
         };
         val
     }
@@ -221,7 +250,8 @@ impl AddressSpaceTrait for NesAddressSpace {
             //todo!("APU address space is disabled");
         } else if address < CARTRIDGE_ROM_START {
             // Cartridge RAM
-            self.cartridge.ram[address as usize] = value;
+            self.cartridge
+                .write_ram(address - CARTRIDGE_RAM_START, value);
         } else {
             // Cartridge memory.
             // TODO: Implement mappers
@@ -229,7 +259,7 @@ impl AddressSpaceTrait for NesAddressSpace {
             //todo!("Cartridge writes not implemented");
             let address_shifted = address - CARTRIDGE_ROM_START;
             let mirror = address_shifted % (0x8000);
-            self.cartridge.rom[mirror as usize] = value;
+            self.cartridge.prg[mirror as usize] = value;
         }
     }
 }
@@ -267,6 +297,7 @@ mod test {
     // Halt
     const KIL: u8 = 0x02;
 
+    // Should work
     #[ignore]
     #[test]
     fn test_6502() {
@@ -303,24 +334,17 @@ mod test {
         assert_eq!(nes.cpu.program_counter(), start);
 
         // Load program into ROM
-        for (ii, val) in program.into_iter().enumerate() {
-            nes.memory.set_byte(start + (ii as u16), val);
+        for (ii, val) in program.iter().enumerate() {
+            nes.memory.set_byte(start + (ii as u16), *val);
+        }
+
+        // Check it is there
+        for (ii, val) in program.iter().enumerate() {
+            assert_eq!(nes.memory.get_byte(start + (ii as u16)), *val);
         }
 
         // Return NES
         nes
-    }
-
-    fn add_negative_twos_complement(base: u16, rhs: u8) -> u16 {
-        if rhs & BIT_SEVEN == 0 {
-            // Positive
-            println!("Positive");
-            base + (rhs as u16)
-        } else {
-            // Negative
-            println!("Negative");
-            (base + ((rhs & !BIT_SEVEN) as u16)) - (BIT_SEVEN as u16)
-        }
     }
 
     #[test]
@@ -361,13 +385,32 @@ mod test {
         let mut nes = Nes::new();
         nes.reset();
 
-        for ii in 1..5 {
-            nes.memory.set_byte(0x6000 + ii, ii as u8);
+        for ii in 0..CARTRIGE_RAM_BYTES {
+            let set_val = (ii % 0xFF) as u8;
+            nes.memory.set_byte(CARTRIDGE_RAM_START + ii, set_val);
         }
 
-        for ii in 1..5 {
-            let val = nes.memory.get_byte(0x6000 + ii);
-            assert_eq!(val, ii as u8);
+        for ii in 0..CARTRIGE_RAM_BYTES {
+            let val = nes.memory.get_byte(CARTRIDGE_RAM_START + ii);
+            let set_val = (ii % 0xFF) as u8;
+            assert_eq!(val, set_val);
+        }
+    }
+
+    #[test]
+    fn test_cpu_ram_write() {
+        let mut nes = Nes::new();
+        nes.reset();
+
+        for ii in 0..RAM_SIZE {
+            let set_val = (ii % 0xFE) as u8;
+            nes.memory.set_byte(ii as u16, set_val);
+        }
+
+        for ii in 0..RAM_SIZE {
+            let val = nes.memory.get_byte(ii as u16);
+            let set_val = (ii % 0xFE) as u8;
+            assert_eq!(val, set_val);
         }
     }
 
@@ -457,15 +500,17 @@ mod test {
         assert_eq!(nes.cpu.register_y(), yyy);
     }
 
-    //#[test]
-    fn test_roms() {
+    // NOT WORKING
+    #[ignore]
+    #[test]
+    fn test_nes_roms() {
         let mut nes = Nes::new();
         let basename = "./rom_tests/nes-test-roms/";
         // pha plp php pla
         // x48 x28 x08 x68
         let files = [
             //"cpu_dummy_reads/cpu_dummy_reads.nes",
-            "instr_test-v5/rom_singles/01-basics.nes",
+            //"instr_test-v5/rom_singles/01-basics.nes",
             //"instr_test-v5/official_only.nes",
             //"nes_instr_test/rom_singles/01-implied.nes",
             //"nes_instr_test/rom_singles/02-immediate.nes",
@@ -485,7 +530,7 @@ mod test {
             println!("reading rom = {file_name}");
             let nes_file = NesFile::try_from_file(&file_name);
             nes_file.print_info();
-            let rom = nes_file.prg_rom();
+            let rom = nes_file.prg_rom().to_vec();
 
             // Set rom
             for (ii, val) in rom.into_iter().enumerate() {

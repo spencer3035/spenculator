@@ -71,7 +71,7 @@ impl Cpu {
         }
     }
 
-    pub fn debug_print(&self, memory: &dyn AddressSpaceTrait, op: &OpCode, program_counter: u16) {
+    pub fn debug_print(&self, _memory: &dyn AddressSpaceTrait, op: &OpCode, program_counter: u16) {
         let value = {
             let mut str = String::new();
             if let Some(addr) = self.addr_abs {
@@ -107,7 +107,7 @@ impl Cpu {
         };
 
         // Print address and instruction information
-        let test_number = memory.get_byte(0x200);
+        let test_number = 60;
         if test_number >= 42 {
             println!("0x{:0>4X} : {} {}", program_counter, op.name(), value);
             //println!("a = 0b{:b}", self.accumulator);

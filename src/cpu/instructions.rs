@@ -82,73 +82,6 @@ pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     cpu.status.set_c(c_flag);
     check_z_and_n(cpu, cpu.accumulator);
 }
-// Decimal mode ADC. Just convert to decimal and manually check overflow
-pub fn adc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    println!("Using decimal!");
-    let data = cpu.fetched_data();
-    println!("ACC = 0x{:X}", cpu.accumulator);
-    println!("DAT = 0x{:X}", data);
-    let data = hex_as_decimal(data);
-    let acc = hex_as_decimal(cpu.accumulator);
-    println!("ACC = {acc}");
-    println!("DAT = {data}");
-
-    let mut c_flag;
-    let mut res;
-    (res, c_flag) = acc.overflowing_add(data);
-    println!("itermediate {res}");
-    if cpu.status.get_c() {
-        res += 1;
-    }
-    println!("itermediate {res}");
-    if res >= 100 {
-        c_flag = true;
-        res -= 100;
-    }
-    println!("itermediate {res}");
-
-    println!("RES = {}", res);
-    cpu.accumulator = decimal_as_hex(res);
-    //cpu.accumulator = res;
-
-    println!("ACC = 0x{:X}", cpu.accumulator);
-    cpu.status.set_c(c_flag);
-    check_z_and_n(cpu, cpu.accumulator);
-}
-// Decimal mode SBC. Just convert to decimal and manually check overflow
-pub fn sbc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    println!("DECIMAL SBC");
-    let data = cpu.fetched_data();
-    let data = hex_as_decimal(data);
-    let acc = hex_as_decimal(cpu.accumulator);
-
-    let mut c_flag;
-    let mut res;
-    println!("ACC = {}", acc);
-    println!("DAT = {}", data);
-    (res, c_flag) = acc.overflowing_sub(data);
-    println!("RES = {}", res);
-    if !cpu.status.get_c() {
-        println!("Carry!");
-        let tmp_flag;
-        (res, tmp_flag) = res.overflowing_sub(1);
-        c_flag |= tmp_flag;
-    }
-    println!("RES = {}", res);
-    if c_flag {
-        // Shift 255 to 99
-        res -= 156;
-    }
-
-    cpu.accumulator = decimal_as_hex(res);
-
-    println!("ACC = 0x{:X}", cpu.accumulator);
-    if c_flag {
-        println!("Setting C flag!");
-    }
-    cpu.status.set_c(!c_flag);
-    check_z_and_n(cpu, cpu.accumulator);
-}
 pub fn ahx(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
 }
@@ -531,6 +464,51 @@ fn inturrupt_and_set_program_counter(
     let low = io.get_byte(pc_address);
     let high = io.get_byte(pc_address + 1);
     cpu.program_counter = concat_u8s_to_u16(low, high);
+}
+
+// Decimal mode ADC. Just convert to decimal and manually check overflow
+fn adc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    let data = cpu.fetched_data();
+    let data = hex_as_decimal(data);
+    let acc = hex_as_decimal(cpu.accumulator);
+
+    let mut c_flag;
+    let mut res;
+    (res, c_flag) = acc.overflowing_add(data);
+    if cpu.status.get_c() {
+        res += 1;
+    }
+    if res >= 100 {
+        c_flag = true;
+        res -= 100;
+    }
+
+    cpu.accumulator = decimal_as_hex(res);
+    cpu.status.set_c(c_flag);
+    check_z_and_n(cpu, cpu.accumulator);
+}
+// Decimal mode SBC. Just convert to decimal and manually check overflow
+fn sbc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    let data = cpu.fetched_data();
+    let data = hex_as_decimal(data);
+    let acc = hex_as_decimal(cpu.accumulator);
+
+    let mut c_flag;
+    let mut res;
+    (res, c_flag) = acc.overflowing_sub(data);
+    if !cpu.status.get_c() {
+        let tmp_flag;
+        (res, tmp_flag) = res.overflowing_sub(1);
+        c_flag |= tmp_flag;
+    }
+    if c_flag {
+        // Shift 255 to 99
+        res -= 156;
+    }
+
+    cpu.accumulator = decimal_as_hex(res);
+    cpu.status.set_c(!c_flag);
+    check_z_and_n(cpu, cpu.accumulator);
 }
 
 #[inline]
