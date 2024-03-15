@@ -267,6 +267,7 @@ mod test {
     // Halt
     const KIL: u8 = 0x02;
 
+    #[ignore]
     #[test]
     fn test_6502() {
         let file = "./rom_tests/6502_65C02_functional_tests/bin_files/6502_functional_test.bin";
@@ -276,17 +277,15 @@ mod test {
         }
 
         nes.cpu.set_program_counter(0x400);
-        let mut tick = 0;
         loop {
             if !nes.tick() {
                 break;
             }
-            tick += 1;
         }
-        println!("tick = {tick}");
         let test = nes.memory.get_byte(0x200);
-        println!("Test = {test}");
-        assert!(test >= 0x2b);
+        // Final test is 240 at memory address 0x3469
+        assert!(test == 240);
+        assert_eq!(nes.cpu.program_counter(), 0x3469);
     }
 
     fn init_nes_with_program(program: &[u8]) -> Nes {

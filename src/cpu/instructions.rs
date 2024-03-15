@@ -59,6 +59,10 @@ fn read_from_stack(cpu: &mut Cpu, io: &mut dyn AddressSpaceTrait) -> u8 {
 
 // Begin actual instruction implementations
 pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    if cpu.status.get_d() {
+        adc_dec(cpu, _io);
+        return;
+    }
     let data = cpu.fetched_data();
 
     let mut c_flag;
@@ -76,6 +80,73 @@ pub fn adc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     let v_flag = (should_be_positive && ended_negative) || (should_be_negative && ended_positive);
     cpu.status.set_v(v_flag);
     cpu.status.set_c(c_flag);
+    check_z_and_n(cpu, cpu.accumulator);
+}
+// Decimal mode ADC. Just convert to decimal and manually check overflow
+pub fn adc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    println!("Using decimal!");
+    let data = cpu.fetched_data();
+    println!("ACC = 0x{:X}", cpu.accumulator);
+    println!("DAT = 0x{:X}", data);
+    let data = hex_as_decimal(data);
+    let acc = hex_as_decimal(cpu.accumulator);
+    println!("ACC = {acc}");
+    println!("DAT = {data}");
+
+    let mut c_flag;
+    let mut res;
+    (res, c_flag) = acc.overflowing_add(data);
+    println!("itermediate {res}");
+    if cpu.status.get_c() {
+        res += 1;
+    }
+    println!("itermediate {res}");
+    if res >= 100 {
+        c_flag = true;
+        res -= 100;
+    }
+    println!("itermediate {res}");
+
+    println!("RES = {}", res);
+    cpu.accumulator = decimal_as_hex(res);
+    //cpu.accumulator = res;
+
+    println!("ACC = 0x{:X}", cpu.accumulator);
+    cpu.status.set_c(c_flag);
+    check_z_and_n(cpu, cpu.accumulator);
+}
+// Decimal mode SBC. Just convert to decimal and manually check overflow
+pub fn sbc_dec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
+    println!("DECIMAL SBC");
+    let data = cpu.fetched_data();
+    let data = hex_as_decimal(data);
+    let acc = hex_as_decimal(cpu.accumulator);
+
+    let mut c_flag;
+    let mut res;
+    println!("ACC = {}", acc);
+    println!("DAT = {}", data);
+    (res, c_flag) = acc.overflowing_sub(data);
+    println!("RES = {}", res);
+    if !cpu.status.get_c() {
+        println!("Carry!");
+        let tmp_flag;
+        (res, tmp_flag) = res.overflowing_sub(1);
+        c_flag |= tmp_flag;
+    }
+    println!("RES = {}", res);
+    if c_flag {
+        // Shift 255 to 99
+        res -= 156;
+    }
+
+    cpu.accumulator = decimal_as_hex(res);
+
+    println!("ACC = 0x{:X}", cpu.accumulator);
+    if c_flag {
+        println!("Setting C flag!");
+    }
+    cpu.status.set_c(!c_flag);
     check_z_and_n(cpu, cpu.accumulator);
 }
 pub fn ahx(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
@@ -361,9 +432,13 @@ pub fn sax(_cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     todo!()
 }
 pub fn sbc(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
-    // Trick to use adc. Invert all bits of fetched data to add a negative number
-    cpu.fetched_data = Some(cpu.fetched_data() ^ 0xFF);
-    adc(cpu, _io);
+    if cpu.status.get_d() {
+        sbc_dec(cpu, _io);
+    } else {
+        // Trick to use adc. Invert all bits of fetched data to add a negative number
+        cpu.fetched_data = Some(cpu.fetched_data() ^ 0xFF);
+        adc(cpu, _io);
+    }
 }
 pub fn sec(cpu: &mut Cpu, _io: &mut dyn AddressSpaceTrait) {
     cpu.status.set_c(true);
@@ -458,13 +533,90 @@ fn inturrupt_and_set_program_counter(
     cpu.program_counter = concat_u8s_to_u16(low, high);
 }
 
+#[inline]
+fn hex_as_decimal(val: u8) -> u8 {
+    (val & 0x0F) + 10 * (val >> 4)
+}
+
+#[inline]
+fn decimal_as_hex(val: u8) -> u8 {
+    let ones = val % 10;
+    let tens = val / 10;
+    (tens << 4) + ones
+}
+
 #[cfg(test)]
 mod test {
+    use crate::TestAddressSpace;
+
     use super::*;
+
+    #[test]
+    fn test_decimal() {
+        assert_eq!(5, hex_as_decimal(0x5));
+        assert_eq!(10, hex_as_decimal(0x10));
+        assert_eq!(15, hex_as_decimal(0x15));
+        assert_eq!(25, hex_as_decimal(0x25));
+        assert_eq!(99, hex_as_decimal(0x99));
+
+        assert_eq!(0x5, decimal_as_hex(5));
+        assert_eq!(0x10, decimal_as_hex(10));
+        assert_eq!(0x15, decimal_as_hex(15));
+        assert_eq!(0x25, decimal_as_hex(25));
+        assert_eq!(0x99, decimal_as_hex(99));
+    }
 
     #[test]
     fn test_instructions() {
         let mut cpu = Cpu::new();
+        let mut io = TestAddressSpace::new();
+
+        let check_adc = |cpu: &mut Cpu, io: &mut TestAddressSpace, data, acc, res| {
+            cpu.status.set_d(true);
+            cpu.fetched_data = Some(data);
+            cpu.accumulator = acc;
+            adc(cpu, io);
+            cpu.fetched_data = None;
+            assert_eq!(cpu.accumulator, res);
+            cpu.status.set_d(false);
+        };
+
+        let check_sbc = |cpu: &mut Cpu, io: &mut TestAddressSpace, data, acc, res| {
+            cpu.status.set_d(true);
+            cpu.fetched_data = Some(data);
+            cpu.accumulator = acc;
+            sbc(cpu, io);
+            cpu.fetched_data = None;
+            assert_eq!(cpu.accumulator, res);
+            cpu.status.set_d(false);
+        };
+
+        // Note that carry bit is set and unset by calls to ADC
+        println!("Checking ADC");
+        check_adc(&mut cpu, &mut io, 0x99, 0x01, 0x0);
+        assert!(cpu.status.get_c());
+        check_adc(&mut cpu, &mut io, 0x99, 0x01, 0x01);
+        assert!(cpu.status.get_c());
+        check_adc(&mut cpu, &mut io, 0x09, 0x01, 0x11);
+        assert!(!cpu.status.get_c());
+        check_adc(&mut cpu, &mut io, 0x09, 0x01, 0x10);
+        assert!(!cpu.status.get_c());
+        check_adc(&mut cpu, &mut io, 0x90, 0x99, 0x89);
+
+        // Note that carry bit is set and unset by calls to SBC
+        cpu.status.set_c(false);
+        println!("Checking SBC");
+        check_sbc(&mut cpu, &mut io, 0x02, 0x01, 0x98);
+        assert!(!cpu.status.get_c());
+        cpu.status.set_c(true);
+        check_sbc(&mut cpu, &mut io, 0x01, 0x10, 0x09);
+        assert!(cpu.status.get_c());
+        cpu.status.set_c(true);
+        check_sbc(&mut cpu, &mut io, 0x99, 0x98, 0x99);
+        assert!(!cpu.status.get_c());
+        cpu.status.set_c(true);
+        check_sbc(&mut cpu, &mut io, 0x0, 0x99, 0x99);
+        assert!(cpu.status.get_c());
 
         println!("Checking 0");
         cpu.fetched_data = Some(1);
