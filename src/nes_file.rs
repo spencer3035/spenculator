@@ -1,4 +1,4 @@
-use crate::consts::KILOBYTE;
+use crate::{consts::KILOBYTE, Cartridge};
 
 pub struct Header {
     bytes: [u8; 16],
@@ -84,6 +84,17 @@ pub struct NesFile {
     misc_rom: Vec<u8>,
 }
 impl NesFile {
+    pub fn cartridge(&self) -> Cartridge {
+        if self.header.mapper() == 0 && self.header.submapper() == 0 {
+            Cartridge {
+                chr: self.chr_rom.clone(),
+                prg: self.prg_rom.clone(),
+                ram: vec![0; crate::RAM_SIZE.into()],
+            }
+        } else {
+            todo!()
+        }
+    }
     pub fn print_info(&self) {
         println!("Mapper       : {}", self.header.mapper());
         println!("Submapper    : {}", self.header.submapper());
