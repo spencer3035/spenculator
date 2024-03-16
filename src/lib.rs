@@ -141,7 +141,7 @@ impl Cartridge {
 }
 
 trait AddressSpaceTrait: 'static {
-    fn get_byte(&self, address: u16) -> u8;
+    fn get_byte(&mut self, address: u16) -> u8;
     fn set_byte(&mut self, address: u16, value: u8);
 
     // Provided
@@ -157,7 +157,7 @@ struct TestAddressSpace {
 }
 
 impl AddressSpaceTrait for TestAddressSpace {
-    fn get_byte(&self, address: u16) -> u8 {
+    fn get_byte(&mut self, address: u16) -> u8 {
         self.ram[address as usize]
     }
     fn set_byte(&mut self, address: u16, value: u8) {
@@ -198,7 +198,7 @@ impl NesAddressSpace {
 
 impl AddressSpaceTrait for NesAddressSpace {
     // TODO: Needs to be &mut self eventually. Reading can change state of the Cartridge
-    fn get_byte(&self, address: u16) -> u8 {
+    fn get_byte(&mut self, address: u16) -> u8 {
         // https://www.nesdev.org/wiki/CPU_memory_map
         let val = if address < PPU_START {
             // CPU RAM

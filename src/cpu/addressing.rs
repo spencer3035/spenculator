@@ -8,10 +8,11 @@ pub fn run_addressing(
     memory: &mut dyn AddressSpaceTrait,
     mode: &AddressingMode,
 ) -> bool {
-    let zero_page_offset =
-        |val: u8| memory.get_byte(cpu.program_counter) as u16 + val as u16 & 0x00FF;
+    let zero_page_offset = |val: u8, memory: &mut dyn AddressSpaceTrait| {
+        memory.get_byte(cpu.program_counter) as u16 + val as u16 & 0x00FF
+    };
 
-    let absolute_address_offset = |val: u8| {
+    let absolute_address_offset = |val: u8, memory: &mut dyn AddressSpaceTrait| {
         let low = memory.get_byte(cpu.program_counter);
         let high = memory.get_byte(cpu.program_counter + 1);
         let mut addr_abs = concat_u8s_to_u16(low, high);
@@ -38,30 +39,30 @@ pub fn run_addressing(
             false
         }
         AddressingMode::ZPX => {
-            let addr_abs = zero_page_offset(cpu.register_x);
+            let addr_abs = zero_page_offset(cpu.register_x, memory);
             cpu.addr_abs = Some(addr_abs);
             cpu.program_counter += 1;
             false
         }
         AddressingMode::ZPY => {
-            cpu.addr_abs = Some(zero_page_offset(cpu.register_y));
+            cpu.addr_abs = Some(zero_page_offset(cpu.register_y, memory));
             cpu.program_counter += 1;
             false
         }
         AddressingMode::ABS => {
-            let (addr_abs, _new_page) = absolute_address_offset(0);
+            let (addr_abs, _new_page) = absolute_address_offset(0, memory);
             cpu.program_counter += 2;
             cpu.addr_abs = Some(addr_abs);
             false
         }
         AddressingMode::ABX => {
-            let (addr_abs, new_page) = absolute_address_offset(cpu.register_x);
+            let (addr_abs, new_page) = absolute_address_offset(cpu.register_x, memory);
             cpu.program_counter += 2;
             cpu.addr_abs = Some(addr_abs);
             new_page
         }
         AddressingMode::ABY => {
-            let (addr_abs, new_page) = absolute_address_offset(cpu.register_y);
+            let (addr_abs, new_page) = absolute_address_offset(cpu.register_y, memory);
             cpu.program_counter += 2;
             cpu.addr_abs = Some(addr_abs);
             new_page

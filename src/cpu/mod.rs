@@ -49,7 +49,7 @@ impl Cpu {
         }
     }
 
-    pub fn print_stack(&self, memory: &dyn AddressSpaceTrait) {
+    pub fn print_stack(&self, memory: &mut dyn AddressSpaceTrait) {
         let mut counter = self.stack_pointer as u16;
         let mut str = String::new();
         let mut str_hex = String::new();
