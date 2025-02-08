@@ -548,7 +548,7 @@ mod test {
                 }
                 tick += 1;
             }
-            println!("0x{byte:.X}");
+            println!("0x{byte:X}");
             break;
         }
         let mut str = String::new();
